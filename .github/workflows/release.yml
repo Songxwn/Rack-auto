@@ -1,0 +1,73 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-${GOOS}-${GOARCH}${EXT} ./cmd/rackauto
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-agent-${GOOS}-${GOARCH}${EXT} ./cmd/rackauto-agent
+          (cd dist && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rackauto-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq zip
+          mkdir -p release
+          cd artifacts
+          for d in *; do
+            if [ "${d}" = "rackauto-windows-amd64" ]; then
+              (cd "$d" && zip -r "../../release/${d}.zip" .)
+            else
+              tar -czf "../release/${d}.tar.gz" -C "$d" .
+            fi
+          done
+          cd ..
+          gh release create "${GITHUB_REF_NAME}" release/* --title "Rack-auto ${GITHUB_REF_NAME}" --generate-notes

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rack-auto · 裸金属装机</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <aside>
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <strong>Rack-auto</strong>
+        <small>裸金属装机平台</small>
+      </div>
+    </div>
+    <nav id="nav">
+      <button data-view="dash" class="active">总览</button>
+      <button data-view="machines">机器</button>
+      <button data-view="images">镜像</button>
+      <button data-view="install">装机</button>
+      <button data-view="stress">压测</button>
+      <button data-view="jobs">任务</button>
+      <button data-view="boot">网络引导</button>
+    </nav>
+    <div class="aside-foot" id="health">控制面 · 连接中</div>
+  </aside>
+  <main>
+    <header>
+      <h1 id="title">总览</h1>
+      <div class="toolbar">
+        <input id="token" type="password" placeholder="API Token（可选）" />
+        <button class="ghost" id="refresh">刷新</button>
+      </div>
+    </header>
+    <section id="view"></section>
+  </main>
+  <div id="modal" class="hidden"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+[Unit]
+Description=Rack-auto bare-metal provisioner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/rackauto
+ExecStart=/usr/local/bin/rackauto serve -config /etc/rackauto.yaml -data-dir /var/lib/rackauto
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
