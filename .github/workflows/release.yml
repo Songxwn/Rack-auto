@@ -39,8 +39,8 @@ jobs:
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-${GOOS}-${GOARCH}${EXT} ./cmd/rackauto
-          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-agent-${GOOS}-${GOARCH}${EXT} ./cmd/rackauto-agent
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto${EXT} ./cmd/rackauto
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-agent${EXT} ./cmd/rackauto-agent
           (cd dist && sha256sum * > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:

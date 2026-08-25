@@ -18,19 +18,37 @@ func TestScriptContainsKernel(t *testing.T) {
 	if !strings.HasPrefix(out, "#!ipxe") {
 		t.Fatal(out)
 	}
-	if !strings.Contains(out, "vmlinuz-lts") || !strings.Contains(out, "apkovl") {
-		t.Fatalf("missing ramos boot: %s", out)
+	if !strings.Contains(out, "ramos/ubuntu/x86_64/vmlinuz") || !strings.Contains(out, "live-server.iso") {
+		t.Fatalf("missing ubuntu ramos boot: %s", out)
 	}
-	if !strings.Contains(out, "ramos/alpine/v3.21/main") {
-		t.Fatalf("expected local alpine repo: %s", out)
+	if !strings.Contains(out, "nocloud-net") || !strings.Contains(out, "/ipxe/cidata/${mac}/") {
+		t.Fatalf("expected autoinstall seed: %s", out)
+	}
+	if strings.Contains(out, "vmlinuz-lts") || strings.Contains(out, "alpine") {
+		t.Fatalf("still alpine: %s", out)
 	}
 }
 
-func TestAPKOVL(t *testing.T) {
+func TestCIData(t *testing.T) {
 	s := &Service{}
 	s.Cfg.PublicURL = "http://10.0.0.1:8080"
-	b, err := s.APKOVL("aa:bb:cc:dd:ee:ff")
-	if err != nil || len(b) < 100 {
-		t.Fatalf("apkovl %v %d", err, len(b))
+	s.Cfg.APIToken = "secret"
+	ud := string(s.CIDataUserData("AA-BB-CC-DD-EE-FF"))
+	if !strings.Contains(ud, "autoinstall:") || !strings.Contains(ud, "ramos-start.sh") {
+		t.Fatalf("user-data %s", ud)
+	}
+	if !strings.Contains(ud, "aa:bb:cc:dd:ee:ff") {
+		t.Fatalf("mac in user-data %s", ud)
+	}
+	md := string(s.CIDataMetaData("aa:bb:cc:dd:ee:ff"))
+	if !strings.Contains(md, "instance-id:") {
+		t.Fatalf("meta-data %s", md)
+	}
+	sh := string(s.RamosStart("aa:bb:cc:dd:ee:ff"))
+	if !strings.Contains(sh, "rackauto-agent") || !strings.Contains(sh, "sleep infinity") {
+		t.Fatalf("start script %s", sh)
+	}
+	if !strings.Contains(sh, "secret") {
+		t.Fatalf("token missing in start script")
 	}
 }

@@ -110,7 +110,7 @@ func runBootstrap(args []string) int {
 	fs := flag.NewFlagSet("bootstrap", flag.ExitOnError)
 	cfgPath := fs.String("config", env("RACKAUTO_CONFIG", "configs/rackauto.yaml"), "配置文件")
 	dataDir := fs.String("data-dir", "", "数据目录")
-	offline := fs.Bool("offline", false, "完全离线：只用内置 iPXE 和已缓存的 Alpine")
+	offline := fs.Bool("offline", false, "完全离线：只用内置 iPXE 和已缓存的 Ubuntu RAMOS")
 	_ = fs.Parse(args)
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -132,7 +132,7 @@ func usage() {
 
 用法:
   rackauto serve [选项]       启动控制面（HTTP / TFTP / 可选 DHCP）
-  rackauto bootstrap [选项]   安装本机 iPXE、缓存 Alpine、编译 Agent
+  rackauto bootstrap [选项]   安装本机 iPXE、缓存 Ubuntu RAMOS、编译 Agent
   rackauto version
 
 选项:
@@ -140,7 +140,7 @@ func usage() {
   -listen string       HTTP 监听
   -public-url string   机器可达的控制面 URL
   -data-dir string     数据目录
-  -offline             bootstrap 时不访问公网（需已有 Alpine 缓存）
+  -offline             bootstrap 时不访问公网（需已有 Ubuntu live-server 缓存）
 `, Version)
 }
 

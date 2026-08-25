@@ -1,14 +1,12 @@
 package netboot
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -217,21 +215,18 @@ sanboot --no-describe --drive 0x80 || exit
 `
 	}
 	archDir := ArchDir(arch)
-	token := ""
-	if s.Store != nil && s.Store.S != nil {
-		token = s.Store.S.Setting("api_token", s.Cfg.APIToken)
-	}
-	ver := s.Cfg.Bootstrap.AlpineVersion
-	if ver == "" {
-		ver = "3.21"
+	rel := s.Cfg.Bootstrap.UbuntuRelease
+	if rel == "" {
+		rel = "26.04"
 	}
 	return fmt.Sprintf(`#!ipxe
-echo Rack-auto RAMOS (%s / %s)
+echo Rack-auto RAMOS (Ubuntu %s / %s / %s)
 set base %s
-kernel ${base}/ramos/%s/vmlinuz-lts initrd=initramfs-lts modules=loop,squashfs,sd-mod,usb-storage,ext4,nvme,ahci,xfs,btrfs alpine_repo=${base}/ramos/alpine/v%s/main ${base}/ramos/alpine/v%s/community ip=dhcp apkovl=${base}/ipxe/apkovl.tgz?mac=${mac} modloop=${base}/ramos/%s/modloop-lts console=tty0 console=ttyS0,115200 rackauto_url=${base} rackauto_token=%s rackauto_mac=${mac} rackauto_fw=%s
-initrd ${base}/ramos/%s/initramfs-lts
+echo fetching kernel from this control plane (ISO follows in casper, ~2.7GB — need 8GB+ RAM)
+kernel ${base}/ramos/ubuntu/%s/vmlinuz initrd=initrd ip=dhcp url=${base}/ramos/ubuntu/%s/live-server.iso autoinstall cloud-config-url=/dev/null ignore_uuid noprompt "ds=nocloud-net;s=${base}/ipxe/cidata/${mac}/" console=tty0 console=ttyS0,115200 ---
+initrd ${base}/ramos/ubuntu/%s/initrd
 boot
-`, firmware, archDir, base, archDir, ver, ver, archDir, token, firmware, archDir)
+`, rel, firmware, archDir, base, archDir, archDir, archDir)
 }
 
 func platformToFirmware(p string) string {
@@ -256,78 +251,79 @@ func NormalizeMAC(mac string) string {
 	return mac
 }
 
-func (s *Service) APKOVL(mac string) ([]byte, error) {
+func (s *Service) CIDataUserData(mac string) []byte {
+	base := s.PublicURL()
+	mac = NormalizeMAC(mac)
+	url := fmt.Sprintf("%s/ipxe/ramos-start.sh?mac=%s", base, mac)
+	curl := fmt.Sprintf("curl -fL --retry 20 --retry-delay 2 -o /tmp/ramos.sh %s", shQuote(url))
+	body := fmt.Sprintf(`#cloud-config
+autoinstall:
+  version: 1
+  refresh-installer:
+    update: false
+  early-commands:
+    - %s
+    - /bin/bash /tmp/ramos.sh
+`, strconv.Quote(curl))
+	return []byte(body)
+}
+
+func (s *Service) CIDataMetaData(mac string) []byte {
+	mac = NormalizeMAC(mac)
+	id := strings.NewReplacer(":", "", "-", "").Replace(mac)
+	if id == "" {
+		id = "ramos"
+	}
+	return []byte("instance-id: ramos-" + id + "\nlocal-hostname: ramos\n")
+}
+
+func (s *Service) CIDataVendorData() []byte {
+	return []byte("#cloud-config\n")
+}
+
+func (s *Service) RamosStart(mac string) []byte {
 	base := s.PublicURL()
 	token := s.Cfg.APIToken
 	if s.Store != nil && s.Store.S != nil {
 		token = s.Store.S.Setting("api_token", token)
 	}
-	script := fmt.Sprintf(`#!/bin/sh
+	mac = NormalizeMAC(mac)
+	return []byte(fmt.Sprintf(`#!/bin/bash
+# Rack-auto RAMOS: stay in the Ubuntu installer RAM environment and run the agent.
+# Never return — otherwise subiquity would continue and could wipe disks.
+trap 'echo "RAMOS holding (agent stopped)"; sleep infinity' EXIT
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-SERVER="%s"
-TOKEN="%s"
-MAC="%s"
-for x in $(cat /proc/cmdline 2>/dev/null); do
-  case "$x" in
-    rackauto_url=*) SERVER="${x#*=}" ;;
-    rackauto_token=*) TOKEN="${x#*=}" ;;
-    rackauto_mac=*) MAC="${x#*=}" ;;
-  esac
-done
+SERVER=%s
+TOKEN=%s
+MAC=%s
 mkdir -p /usr/local/bin /var/log
-echo "rackauto overlay starting" > /var/log/rackauto.log
-# wait for network
+exec >>/var/log/rackauto.log 2>&1
+echo "rackauto RAMOS starting $(date -Is)"
 i=0
-while [ $i -lt 30 ]; do
-  wget -q -O /dev/null "${SERVER}/api/v1/health" && break
+while [ "$i" -lt 60 ]; do
+  curl -fsS "${SERVER}/api/v1/health" >/dev/null && break
   i=$((i+1))
   sleep 2
 done
 ARCH=$(uname -m)
-wget -q -O /usr/local/bin/rackauto-agent "${SERVER}/boot/agent/${ARCH}/rackauto-agent" || \
-  wget -q -O /usr/local/bin/rackauto-agent "${SERVER}/boot/agent/x86_64/rackauto-agent"
+case "$ARCH" in
+  aarch64|arm64) A=aarch64 ;;
+  *) A=x86_64 ;;
+esac
+curl -fL -o /usr/local/bin/rackauto-agent "${SERVER}/boot/agent/${A}/rackauto-agent" || \
+  curl -fL -o /usr/local/bin/rackauto-agent "${SERVER}/boot/agent/x86_64/rackauto-agent"
 chmod +x /usr/local/bin/rackauto-agent
-apk add --no-cache --quiet parted e2fsprogs e2fsprogs-extra dosfstools sgdisk sfdisk lsblk dmidecode util-linux curl qemu-img grub grub-efi efibootmgr nvme-cli hdparm coreutils lsblk mount umount rsync openssh-keygen 2>/dev/null || true
-exec /usr/local/bin/rackauto-agent --url "$SERVER" --token "$TOKEN" --mac "$MAC" >> /var/log/rackauto.log 2>&1
-`, base, token, NormalizeMAC(mac))
-
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	files := []struct {
-		name string
-		body string
-		mode int64
-	}{
-		{"etc/hostname", "ramos\n", 0644},
-		{"etc/motd", "Rack-auto RAMOS — in-memory provisioning environment\n", 0644},
-		{"etc/local.d/rackauto.start", script, 0755},
-		{"etc/runlevels/default/local", "", 0755},
-	}
-	for _, f := range files {
-		body := []byte(f.body)
-		hdr := &tar.Header{Name: f.name, Mode: f.mode, Size: int64(len(body)), Uid: 0, Gid: 0, ModTime: time.Now()}
-		if f.name == "etc/runlevels/default/local" {
-			hdr.Typeflag = tar.TypeSymlink
-			hdr.Linkname = "/etc/init.d/local"
-			hdr.Size = 0
-			if err := tw.WriteHeader(hdr); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		if err := tw.WriteHeader(hdr); err != nil {
-			return nil, err
-		}
-		if _, err := tw.Write(body); err != nil {
-			return nil, err
-		}
-	}
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	if err := gz.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq >/dev/null 2>&1 || true
+apt-get install -y -qq qemu-utils efibootmgr dosfstools e2fsprogs >/dev/null 2>&1 || true
+echo "starting rackauto-agent"
+/usr/local/bin/rackauto-agent --url "$SERVER" --token "$TOKEN" --mac "$MAC" || true
+echo "agent exited"
+sleep infinity
+`, shQuote(base), shQuote(token), shQuote(mac)))
 }
+
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+

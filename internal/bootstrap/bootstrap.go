@@ -24,20 +24,9 @@ func Run(cfg config.Config, agentSrc string, offline bool) error {
 		return err
 	}
 
-	fmt.Println(">> Alpine RAMOS 内核")
-	if err := installAlpineNetboot(hc, cfg, offline); err != nil {
-		fmt.Printf("   ! %v\n", err)
-		if offline {
-			return err
-		}
-	}
-
-	fmt.Println(">> 本地 Alpine APK 仓库（供 RAMOS 离线 apk add）")
-	if err := installAlpineRepo(hc, cfg, offline); err != nil {
-		fmt.Printf("   ! %v\n", err)
-		if offline {
-			return err
-		}
+	fmt.Println(">> Ubuntu RAMOS（live-server ISO + casper 内核）")
+	if err := installUbuntu(hc, cfg, offline); err != nil {
+		return err
 	}
 
 	fmt.Println(">> 交叉编译 Linux Agent")
@@ -47,7 +36,7 @@ func Run(cfg config.Config, agentSrc string, offline bool) error {
 			return err
 		}
 	}
-	fmt.Println("bootstrap 完成。iPXE 与内核均由本机 TFTP/HTTP 提供，装机网不必访问公网。")
+	fmt.Println("bootstrap 完成。iPXE 与 Ubuntu RAMOS 均由本机 TFTP/HTTP 提供，装机网不必再访问公网。")
 	return nil
 }
 
@@ -77,6 +66,16 @@ func download(hc *http.Client, url, dest string) error {
 	return os.Rename(tmp, dest)
 }
 
+func haveLinuxAgent(cfg config.Config) bool {
+	for _, arch := range []string{"x86_64", "aarch64"} {
+		st, err := os.Stat(filepath.Join(cfg.AgentDir(), arch, "rackauto-agent"))
+		if err == nil && st.Size() > 1024 {
+			return true
+		}
+	}
+	return false
+}
+
 func buildAgents(cfg config.Config, src string) error {
 	if src == "" {
 		src = "."
@@ -84,6 +83,20 @@ func buildAgents(cfg config.Config, src string) error {
 	pkg := filepath.Join(src, "cmd", "rackauto-agent")
 	if _, err := os.Stat(pkg); err != nil {
 		pkg = "./cmd/rackauto-agent"
+	}
+	if _, err := os.Stat(pkg); err != nil {
+		if haveLinuxAgent(cfg) {
+			fmt.Println("   无源码，沿用已有 Agent")
+			return nil
+		}
+		return fmt.Errorf("没有 cmd/rackauto-agent 源码，也没有现成 Agent。请用 GitHub Release 里的 rackauto-agent，拷到 %s/<架构>/rackauto-agent", cfg.AgentDir())
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		if haveLinuxAgent(cfg) {
+			fmt.Println("   未安装 Go，沿用已有 Agent")
+			return nil
+		}
+		return fmt.Errorf("本机没有 go 命令。控制面请直接用 Release 二进制，不必从源码编译")
 	}
 	targets := []struct{ goos, goarch, dir string }{
 		{"linux", "amd64", "x86_64"},
@@ -100,7 +113,7 @@ func buildAgents(cfg config.Config, src string) error {
 			fmt.Printf("   go build %s/%s -> %s\n", t.goos, t.goarch, out)
 		}
 		if err := cmd.Run(); err != nil {
-			return err
+			return fmt.Errorf("交叉编译失败（Go 1.26 若报 nfcSparseValues，请用 GOTOOLCHAIN=go1.25.3）：%w", err)
 		}
 	}
 	return nil

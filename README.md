@@ -2,7 +2,7 @@
 
 把机房里的裸金属，从「按开机键」变成「在网页里点一下」。
 
-服务器 PXE 网络启动 → 内存里跑一套 RAMOS（Alpine + Agent）→ 控制面下发镜像、账号、分区和网卡 → 需要时再用 IPMI / Redfish 开关机。传统 BIOS 和 UEFI 都支持。
+服务器 PXE 网络启动 → 内存里跑一套 RAMOS（Ubuntu live-server + Agent）→ 控制面下发镜像、账号、分区和网卡 → 需要时再用 IPMI / Redfish 开关机。传统 BIOS 和 UEFI 都支持。
 
 [![ci](https://github.com/Songxwn/Rack-auto/actions/workflows/ci.yml/badge.svg)](https://github.com/Songxwn/Rack-auto/actions/workflows/ci.yml)
 [最新版本](https://github.com/Songxwn/Rack-auto/releases/latest)
@@ -19,7 +19,7 @@
 DHCP / TFTP  ──►  iPXE（BIOS：undionly.kpxe  /  UEFI：ipxe.efi）
                        │
                        ▼
-              RAMOS（内存 Alpine + Agent）
+              RAMOS（内存 Ubuntu + Agent）
                        │  HTTP
                        ▼
            Rack-auto 控制面（Web + SQLite）
@@ -30,21 +30,26 @@ DHCP / TFTP  ──►  iPXE（BIOS：undionly.kpxe  /  UEFI：ipxe.efi）
 
 ## 五分钟上手
 
-控制面请用 **Linux**（要占用 UDP 67 / 69）。Windows 只能先打开 Web 看看界面。
+控制面请用 **Linux**（要占用 UDP 67 / 69）。**请直接用 GitHub Release 二进制，不要自己 `go build`。** 源码编译容易被本机 Go 版本坑到（见下方「开发」）。
 
-### 1. 拿到程序
+### 1. 安装 Release
 
-任选一种：
-
-**Release 二进制**（不用装 Go）：到 [Releases](https://github.com/Songxwn/Rack-auto/releases/latest) 下载 `rackauto-linux-amd64.tar.gz`（ARM 用 `arm64`），解压出 `rackauto`。
-
-**源码编译**（需要 Go 1.25+）：
+到 [Releases](https://github.com/Songxwn/Rack-auto/releases/latest) 下载对应包。当前 `v0.3.0` 解压后文件名带平台后缀：
 
 ```bash
-git clone https://github.com/Songxwn/Rack-auto.git
-cd Rack-auto
-go build -o bin/rackauto ./cmd/rackauto
+# Linux x86_64 示例；ARM 把 amd64 换成 arm64
+mkdir -p bin data/agent/x86_64
+curl -fLO https://github.com/Songxwn/Rack-auto/releases/latest/download/rackauto-linux-amd64.tar.gz
+tar -tzf rackauto-linux-amd64.tar.gz    # 先看里面叫什么
+tar -xzf rackauto-linux-amd64.tar.gz
+# v0.3.0：rackauto-linux-amd64 / rackauto-agent-linux-amd64
+# 以后版本包内可能直接是 rackauto / rackauto-agent
+install -m 0755 rackauto-linux-amd64 bin/rackauto 2>/dev/null || install -m 0755 rackauto bin/rackauto
+install -m 0755 rackauto-agent-linux-amd64 data/agent/x86_64/rackauto-agent 2>/dev/null \
+  || install -m 0755 rackauto-agent data/agent/x86_64/rackauto-agent
 ```
+
+更完整的 `/opt/rackauto` 安装见 [docs/deploy.md](docs/deploy.md#4-安装控制面)。
 
 ### 2. 写一份配置
 
@@ -58,13 +63,13 @@ cp configs/rackauto.example.yaml configs/rackauto.yaml
 
 ### 3. 准备引导文件
 
-iPXE 已内置，不必访问 `boot.ipxe.org`。Alpine 内核第一次需要联网缓存：
+iPXE 已内置。Ubuntu 26.04 live-server ISO 第一次需要联网缓存（约 2.7GB，不必装 Go）：
 
 ```bash
 ./bin/rackauto bootstrap -config configs/rackauto.yaml
 ```
 
-若用 Release 包且没有源码：把 `rackauto-agent-linux-amd64` 放到 `data/agent/x86_64/rackauto-agent`。源码目录下 bootstrap 会交叉编译。详见 [部署教程](docs/deploy.md#6-bootstrap本机-ipxe-与离线缓存)。
+详见 [部署教程](docs/deploy.md#6-bootstrap本机-ipxe-与离线缓存)。
 
 ### 4. 启动
 
@@ -96,6 +101,8 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | `tftp_listen` | 默认 `:69` |
 | `dhcp.enabled` | 内置 DHCP，也可只在网页里开关 |
 | `dhcp.interface` | 只在这块接入网卡上应答 PXE |
+| `bootstrap.ubuntu_release` | RAMOS 用的 Ubuntu LTS，默认 `26.04` |
+| `bootstrap.ubuntu_mirror` | 国内镜像，例如 `https://mirrors.aliyun.com/ubuntu-releases` |
 
 ## 长期运行
 
@@ -119,13 +126,27 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 
 ## 开发
 
+源码要求 **Go 1.25**。不要用本机已经损坏的 Go 1.26 直接 `go build`（常见报错 `undefined: nfcSparseValues`）。也不要 `go build -o bin/rackauto` 却忘了建 `bin/`。
+
+Linux / macOS：
+
 ```bash
-go test ./...
-go build ./cmd/rackauto
-go build ./cmd/rackauto-agent
+git clone https://github.com/Songxwn/Rack-auto.git
+cd Rack-auto
+export GOTOOLCHAIN=go1.25.3
+export GOPROXY=https://goproxy.cn,direct   # 国内建议加上
+mkdir -p bin
+go build -o bin/rackauto ./cmd/rackauto
+go build -o bin/rackauto-agent ./cmd/rackauto-agent
 ```
 
-GitHub Actions 在推送 `v*` 标签时编译 linux / darwin / windows 多架构并发布 Release。
+或 `make build` / `bash scripts/build.sh`。Windows 用 `powershell -File scripts/build.ps1`。
+
+```bash
+go test ./...
+```
+
+GitHub Actions 在推送 `v*` 标签时用 Go 1.25 编译 linux / darwin / windows 并发布 Release。生产环境请用 Release，不要在控制面主机上编译。
 
 ## License
 

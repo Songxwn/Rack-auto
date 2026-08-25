@@ -31,7 +31,7 @@
     → DHCP 告诉它：TFTP 在哪、引导文件叫什么
     → TFTP 下载 undionly.kpxe（传统 BIOS）或 ipxe.efi（UEFI）
     → iPXE 再通过 HTTP 找控制面：/ipxe/boot.ipxe
-    → 进入 RAMOS（内存里的 Alpine + Agent）
+    → 进入 RAMOS（内存里的 Ubuntu live-server + Agent）
     → 控制面下发「装哪个镜像、分区、用户、SSH 公钥、网卡」
     → Agent 写盘，写完切回本地磁盘重启
 ```
@@ -47,12 +47,14 @@
 | 一台控制面主机 | **强烈建议 Linux**。要绑定 UDP 67/69，Windows 只能先用来看 Web，不适合当 PXE 服务器。 |
 | 一块装机网卡 | 和控制面、待装机服务器在**同一二层网段**（同一交换机/VLAN）。 |
 | 待装机服务器 | 支持 PXE；有 BMC（IPMI/Redfish）会更省事，没有也可以人肉进 BIOS 选网卡启动。 |
-| 出网 | 第一次 `bootstrap` 要下载 iPXE 和 Alpine 内核（约几十到上百 MB）。 |
+| 出网 | 第一次 `bootstrap` 要下载 Ubuntu 26.04 live-server ISO（约 **2.7GB**）。国内可把 `ubuntu_mirror` 改成阿里云等镜像。 |
+| 内存 | 待装机服务器建议 **≥ 8GB**：casper 会把整张 ISO 拉进内存。4GB 机器很容易在这里 OOM / panic。 |
+| 磁盘 | 控制面预留约 3GB 给 RAMOS ISO；另外再为 cloud 镜像留空间。 |
 | 管理员权限 | 绑定 DHCP/TFTP 特权端口需要 root（或等价能力）。 |
 
 **不需要**事先给每台机器装操作系统。有 BMC 的话，连显示器都可以不用。
 
-控制面磁盘建议预留空间：引导文件不大，**镜像**才占地方（一张 Ubuntu cloud 镜像大约 600MB～1GB，按你要存几份算）。
+控制面磁盘建议预留：**RAMOS ISO 约 3GB**，再加上你要存的 cloud 镜像（每张大约 600MB～1GB）。
 
 ---
 
@@ -88,42 +90,55 @@
 
 三条路，选一条即可。实验室从 **A** 最快；要长期跑选 **A 或 C**。
 
-### A. 用 GitHub Release 二进制（推荐）
+### A. 用 GitHub Release 二进制（推荐，不用装 Go）
 
-到 [Releases](https://github.com/Songxwn/Rack-auto/releases) 下载对应平台的包，例如 Linux x86_64：
+到 [Releases](https://github.com/Songxwn/Rack-auto/releases/latest) 下载对应平台的包。**不要**在控制面主机上 `go build`，安装教程默认走这条路。
+
+`v0.3.0` 压缩包里的文件名带平台后缀（`rackauto-linux-amd64`）；之后的版本会改成包内直接叫 `rackauto`。下面两套名字都写上了：
 
 ```bash
-sudo mkdir -p /opt/rackauto/{bin,configs,data}
+sudo mkdir -p /opt/rackauto/{bin,configs,data/agent/x86_64}
 cd /tmp
 curl -fLO https://github.com/Songxwn/Rack-auto/releases/latest/download/rackauto-linux-amd64.tar.gz
-tar -tzf rackauto-linux-amd64.tar.gz   # 里面一般是 rackauto-linux-amd64、rackauto-agent-linux-amd64
+tar -tzf rackauto-linux-amd64.tar.gz
 tar -xzf rackauto-linux-amd64.tar.gz
-sudo install -m 0755 rackauto-linux-amd64 /opt/rackauto/bin/rackauto
-sudo mkdir -p /opt/rackauto/data/agent/x86_64
-sudo install -m 0755 rackauto-agent-linux-amd64 /opt/rackauto/data/agent/x86_64/rackauto-agent
+
+CTRL=$(ls -1 rackauto-linux-amd64 rackauto 2>/dev/null | head -n1)
+AGENT=$(ls -1 rackauto-agent-linux-amd64 rackauto-agent 2>/dev/null | head -n1)
+if [ -z "$CTRL" ] || [ -z "$AGENT" ]; then
+  echo "解压后没有找到二进制，请看 tar -tzf 的输出"; ls -l; exit 1
+fi
+sudo install -m 0755 "$CTRL" /opt/rackauto/bin/rackauto
+sudo install -m 0755 "$AGENT" /opt/rackauto/data/agent/x86_64/rackauto-agent
 ```
 
-ARM 控制面把上面的 `amd64` 换成 `arm64`，Agent 目录用 `data/agent/aarch64/`。Windows 控制面只能预览 Web，PXE 请换 Linux。
+ARM 控制面把 `amd64` 换成 `arm64`，Agent 目录用 `data/agent/aarch64/`。Windows 压缩包是 `.zip`，只适合看 Web，PXE 请换 Linux。
 
-Release 里的 Agent 只覆盖**当前这个 CPU 架构**。若控制面是 x86_64、还要给 ARM 服务器装机，再下一份 `rackauto-linux-arm64.tar.gz`，把其中的 `rackauto-agent-linux-arm64` 放到 `data/agent/aarch64/rackauto-agent`。
+若还要给 ARM 服务器装机，再下一份 `rackauto-linux-arm64.tar.gz`，把其中的 Agent 放到 `data/agent/aarch64/rackauto-agent`。
 
-从**源码**执行 `bootstrap` 会自动交叉编译两个架构，不必手工拷。
+### B. 从源码编译（可选）
 
-### B. 从源码编译
+只在你要改代码时才需要。必须是 **Go 1.25 工具链**。本机若是 Go 1.26 且报 `nfcSparseValues`，说明安装不完整，用下面的 `GOTOOLCHAIN` 即可，不必先修好 GOROOT。
 
-需要 [Go 1.25+](https://go.dev/dl/)。
+还要先 `mkdir -p bin`，否则 `go build -o bin/rackauto` 会直接失败。
 
 ```bash
 git clone https://github.com/Songxwn/Rack-auto.git
 cd Rack-auto
+export GOTOOLCHAIN=go1.25.3
+export GOPROXY=https://goproxy.cn,direct
+mkdir -p bin
 go build -o bin/rackauto ./cmd/rackauto
+go build -o bin/rackauto-agent ./cmd/rackauto-agent
 ```
 
-后面的配置文件可以用仓库里的 `configs/rackauto.example.yaml`。`bootstrap` 会顺带交叉编译 Linux Agent。
+也可以 `make build` 或 `bash scripts/build.sh`（Windows：`powershell -File scripts/build.ps1`）。
+
+`bootstrap` 若找不到 `go`、但 `data/agent/` 里已经有 Release 的 Agent，会跳过交叉编译。
 
 ### C. Docker
 
-见 [第 11 节](#11-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 iPXE / Alpine。
+见 [第 11 节](#11-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 Ubuntu live-server ISO。
 
 ---
 
@@ -166,7 +181,22 @@ ip -br a
 
 iPXE 固件已经打进控制面程序，**PXE 阶段不会访问 boot.ipxe.org**。`serve` 启动时也会自动把 `undionly.kpxe` / `ipxe.efi` 写到 `data/tftp/`。
 
-Alpine 内核和装机用的 apk 包第一次需要联网缓存到本机；之后整个装机网可以离线。
+RAMOS 使用 **Ubuntu 26.04 LTS live-server**（当前最新稳定版 LTS）。第一次需要联网把 ISO 缓存到本机，并从中抽出 `casper/vmlinuz`、`casper/initrd`；之后整个装机网可以离线。
+
+国内下载慢时，在配置里加上：
+
+```yaml
+bootstrap:
+  ubuntu_release: "26.04"
+  ubuntu_mirror: "https://mirrors.aliyun.com/ubuntu-releases"
+```
+
+若已经有 ISO，不必再下：
+
+```yaml
+bootstrap:
+  ubuntu_iso: "/path/to/ubuntu-26.04-live-server-amd64.iso"
+```
 
 ```bash
 # 源码目录（有网，只需一次）
@@ -184,13 +214,11 @@ sudo /opt/rackauto/bin/rackauto bootstrap \
 它会做：
 
 1. 把内置 iPXE 写到 `data/tftp/`（BIOS：`undionly.kpxe`，UEFI：`ipxe.efi`）
-2. 缓存 Alpine LTS 内核 / initramfs / modloop 到 `data/ramos/<arch>/`
-3. 缓存 RAMOS 需要的 apk 到 `data/ramos/alpine/v3.21/{main,community}/<arch>/`
+2. 下载 Ubuntu live-server ISO 到 `data/ramos/ubuntu/<arch>/live-server.iso`（约 2.7GB，可续传）
+3. 抽出 `vmlinuz` / `initrd` 到同一目录
 4. 若当前目录有源码，交叉编译 Linux Agent 到 `data/agent/`
 
-已经存在的文件会跳过。离线模式下缺内核或 APKINDEX 会直接报错，把有网环境生成的整个 `data/` 拷过来即可。
-
-已经存在且大于 1KB 的文件会跳过，可以重复执行。某次下载失败时，日志会打 `!`，修好网络后再跑一遍即可。
+已经存在且完整的 ISO / 内核会跳过，可以重复执行。下载中断会留着 `.tmp`，下次自动续传。
 
 没有 Go、又没从源码 bootstrap 时，请从对应架构的 Release 包拷入 Agent（文件名带平台后缀）：
 
@@ -386,7 +414,7 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 - [ ] `curl -sS http://<public_url>/api/v1/health` 返回正常（从**另一台机器**测，不要只在控制面本机测 `127.0.0.1`）
 - [ ] `ls data/tftp/` 里有 `undionly.kpxe` 和 `ipxe.efi`
-- [ ] `ls data/ramos/x86_64/` 里有 `vmlinuz-lts`、`initramfs-lts`
+- [ ] `ls data/ramos/ubuntu/x86_64/` 里有 `vmlinuz`、`initrd`、`live-server.iso`（ISO 大约 2.7GB）
 - [ ] `ls data/agent/x86_64/rackauto-agent` 文件存在且可执行
 - [ ] 控制台左下角是 `CTRL // ONLINE`
 - [ ] DHCP：要么内置显示运行中，要么现有 dhcpd/dnsmasq 已改 next-server
@@ -397,6 +425,17 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 ---
 
 ## 13. 常见问题
+
+**`go build` 失败 / undefined: nfcSparseValues / 找不到 bin/rackauto**  
+生产环境请用 Release，不要编译。若一定要编：
+
+1. 先 `mkdir -p bin`，再 `go build -o bin/rackauto ./cmd/rackauto`（目录不存在会直接失败）。
+2. 指定工具链，避开损坏的本机 Go 1.26：`export GOTOOLCHAIN=go1.25.3`
+3. 国内拉模块：`export GOPROXY=https://goproxy.cn,direct`
+4. 或直接 `make build` / `bash scripts/build.sh`
+
+**解压 Release 后没有叫 rackauto 的文件**  
+`v0.3.0` 包内是 `rackauto-linux-amd64` 和 `rackauto-agent-linux-amd64`。用 `tar -tzf` 看实际名字，再 `install` 到 `/opt/rackauto/bin/rackauto`。
 
 **iPXE 报 Network unreachable（https://ipxe.org/28086011），随后反复出现 iPXE 画面**  
 这是两件事叠在一起：
@@ -419,8 +458,11 @@ API Token 填错，或页面不是从控制面自己的 HTTP 打开的（不要�
 **DHCP 应用失败：请指定接入网卡 / 绑定 67 失败**  
 启用时必须选网卡。67 被 dhcpd/dnsmasq 占用时先停掉旧服务，或改用「方案二」。Linux 请用 root。
 
-**进了 Alpine / RAMOS 但控制台没有机器**  
-Agent 连不上 `public_url`，或 Token 不一致。看 RAMOS 控制台滚动日志。
+**PXE 进了内核随后 Kernel panic / Attempted to kill init**  
+旧版用 Alpine 当 RAMOS 时，init 很容易在拉 overlay 失败后直接退出（`exitcode=0x00000100`）。现在改成 Ubuntu live-server。若仍然 panic：ISO 没缓存完整、`public_url` 对 PXE 网不可达、或机器内存不够（请 ≥ 8GB）。串口/屏幕上应能看到 casper 在 HTTP 拉 `live-server.iso`。
+
+**进了 Ubuntu / RAMOS 但控制台没有机器**  
+Agent 连不上 `public_url`，或 Token 不一致。看 RAMOS 日志 `/var/log/rackauto.log`（installer 环境里）。
 
 **装机写盘失败 / qemu-img**  
 镜像 URL 机器访问不了（HTTPS 证书、要代理）。改成控制面本地上传。确认类型选对（cloud 的 qcow2 选「云镜像」）。

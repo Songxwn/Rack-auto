@@ -78,7 +78,10 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /ipxe/boot.ipxe", s.ipxeMenu)
 	mux.HandleFunc("GET /ipxe/script", s.ipxeScript)
-	mux.HandleFunc("GET /ipxe/apkovl.tgz", s.apkovl)
+	mux.HandleFunc("GET /ipxe/ramos-start.sh", s.ramosStart)
+	mux.HandleFunc("GET /ipxe/cidata/{mac}/user-data", s.cidataUserData)
+	mux.HandleFunc("GET /ipxe/cidata/{mac}/meta-data", s.cidataMetaData)
+	mux.HandleFunc("GET /ipxe/cidata/{mac}/vendor-data", s.cidataVendorData)
 
 	mux.Handle("/boot/agent/", http.StripPrefix("/boot/agent/", http.FileServer(http.Dir(s.Cfg.AgentDir()))))
 	mux.Handle("/ramos/", http.StripPrefix("/ramos/", http.FileServer(http.Dir(s.Cfg.RAMOSDir()))))
@@ -880,14 +883,24 @@ func httpBase(r *http.Request, fallback string) string {
 	return scheme + "://" + host
 }
 
-func (s *Server) apkovl(w http.ResponseWriter, r *http.Request) {
-	b, err := s.Netboot.APKOVL(r.URL.Query().Get("mac"))
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	w.Header().Set("Content-Type", "application/gzip")
-	_, _ = w.Write(b)
+func (s *Server) ramosStart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	_, _ = w.Write(s.Netboot.RamosStart(r.URL.Query().Get("mac")))
+}
+
+func (s *Server) cidataUserData(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/cloud-config; charset=utf-8")
+	_, _ = w.Write(s.Netboot.CIDataUserData(r.PathValue("mac")))
+}
+
+func (s *Server) cidataMetaData(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write(s.Netboot.CIDataMetaData(r.PathValue("mac")))
+}
+
+func (s *Server) cidataVendorData(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/cloud-config; charset=utf-8")
+	_, _ = w.Write(s.Netboot.CIDataVendorData())
 }
 
 func RandHex(n int) string {

@@ -33,7 +33,20 @@ type DHCP struct {
 }
 
 type Boot struct {
-	AlpineVersion string `yaml:"alpine_version"`
+	// UbuntuRelease is the live-server release used as RAMOS (latest LTS).
+	UbuntuRelease string `yaml:"ubuntu_release"`
+	// UbuntuMirror is the directory that contains "<release>/ubuntu-*-live-server-amd64.iso".
+	// Empty uses https://releases.ubuntu.com. Example: https://mirrors.aliyun.com/ubuntu-releases
+	UbuntuMirror string `yaml:"ubuntu_mirror"`
+	// UbuntuCDImage is the ARM (and other ports) image root. Empty uses
+	// https://cdimage.ubuntu.com/releases — ISO is at <root>/<release>/release/.
+	UbuntuCDImage string `yaml:"ubuntu_cdimage"`
+	// UbuntuISO is an optional local amd64 live-server ISO (skips download).
+	UbuntuISO string `yaml:"ubuntu_iso"`
+	// UbuntuISOARM is an optional local arm64 live-server ISO.
+	UbuntuISOARM string `yaml:"ubuntu_iso_arm"`
+	// UbuntuArches lists RAMOS architectures to cache. Default: x86_64 only.
+	UbuntuArches []string `yaml:"ubuntu_arches"`
 }
 
 func Default() Config {
@@ -47,7 +60,7 @@ func Default() Config {
 			LeaseSec:   3600,
 			DNS:        "8.8.8.8",
 		},
-		Bootstrap: Boot{AlpineVersion: "3.21"},
+		Bootstrap: Boot{UbuntuRelease: "26.04", UbuntuArches: []string{"x86_64"}},
 	}
 }
 
@@ -81,8 +94,11 @@ func (c *Config) normalize() {
 		c.TFTPListen = ":69"
 	}
 	c.DHCP.Normalize()
-	if c.Bootstrap.AlpineVersion == "" {
-		c.Bootstrap.AlpineVersion = "3.21"
+	if c.Bootstrap.UbuntuRelease == "" {
+		c.Bootstrap.UbuntuRelease = "26.04"
+	}
+	if len(c.Bootstrap.UbuntuArches) == 0 {
+		c.Bootstrap.UbuntuArches = []string{"x86_64"}
 	}
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
 }
