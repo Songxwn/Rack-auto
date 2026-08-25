@@ -11,7 +11,8 @@ services:
       - NET_BIND_SERVICE
     volumes:
       - rackauto-data:/var/lib/rackauto
-      - ../configs/rackauto.example.yaml:/etc/rackauto.yaml:ro
+      # 先复制 example 并改好 public_url：cp configs/rackauto.example.yaml configs/rackauto.yaml
+      - ../configs/rackauto.yaml:/etc/rackauto.yaml:ro
     environment:
       TZ: Asia/Shanghai
 

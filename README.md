@@ -1,85 +1,106 @@
 # Rack-auto
 
-裸金属服务器自动化装机平台：iPXE 网络引导（传统 BIOS + UEFI）→ 内存中的 RAMOS → 控制面下发镜像与配置 → IPMI / Redfish 开关机与引导。
+把机房里的裸金属，从「按开机键」变成「在网页里点一下」。
+
+服务器 PXE 网络启动 → 内存里跑一套 RAMOS（Alpine + Agent）→ 控制面下发镜像、账号、分区和网卡 → 需要时再用 IPMI / Redfish 开关机。传统 BIOS 和 UEFI 都支持。
 
 [![ci](https://github.com/Songxwn/Rack-auto/actions/workflows/ci.yml/badge.svg)](https://github.com/Songxwn/Rack-auto/actions/workflows/ci.yml)
+[最新版本](https://github.com/Songxwn/Rack-auto/releases/latest)
 
-## 能做什么
+![Rack-auto 控制台总览](docs/images/console-overview.png)
 
-- **iPXE 启动**：TFTP 提供 `undionly.kpxe` / `ipxe.efi`，再 HTTP chainload 到按 MAC 生成的脚本
-- **BIOS 与 UEFI**：按 DHCP option 93 选择引导文件；装机可选 GPT+ESP 或 bios_grub
-- **RAMOS**：Alpine 内核 + initramfs 在内存运行，加载 overlay 后启动 `rackauto-agent`
-- **装机配置**：SSH 公钥、用户密码、磁盘分区、网卡（DHCP/静态）写入 cloud-init / netplan / interfaces
-- **压测**：CPU、内存、硬盘、到控制面的网络吞吐
-- **BMC**：IPMI 2.0（lanplus）与 Redfish 设置 PXE/磁盘引导、开机、关机、重启
+控制台是深色机房 HUD：左侧 01–07 导航，总览上能看到节点、在线 Agent、镜像、进行中的任务，以及 DHCP 与上报事件。
+
+**详细逐步教程（网络怎么接、DHCP、第一次装机、排错）请看 [docs/deploy.md](docs/deploy.md)。** 下面是最短路径，方便你先把控制台跑起来。
+
+## 它怎么工作
 
 ```
-DHCP/TFTP ──► iPXE (BIOS 或 UEFI)
-                 │
-                 ▼
-            RAMOS (内存 Alpine + Agent)
-                 │  HTTP API
-                 ▼
-         Rack-auto 控制面 (Web + SQLite)
-                 │
-                 ├── 下发装机 / 压测任务
-                 └── IPMI / Redfish → BMC 开关机、指定引导
+DHCP / TFTP  ──►  iPXE（BIOS：undionly.kpxe  /  UEFI：ipxe.efi）
+                       │
+                       ▼
+              RAMOS（内存 Alpine + Agent）
+                       │  HTTP
+                       ▼
+           Rack-auto 控制面（Web + SQLite）
+                       │
+                       ├── 下发装机 / 压测
+                       └── IPMI / Redfish → 开机、关机、指定引导
 ```
 
-## 快速开始
+## 五分钟上手
 
-需要 Go 1.25+。控制面建议跑在 Linux 上（TFTP/DHCP 特权端口）；Windows 可先跑 Web 与 Agent 联调。
+控制面请用 **Linux**（要占用 UDP 67 / 69）。Windows 只能先打开 Web 看看界面。
+
+### 1. 拿到程序
+
+任选一种：
+
+**Release 二进制**（不用装 Go）：到 [Releases](https://github.com/Songxwn/Rack-auto/releases/latest) 下载 `rackauto-linux-amd64.tar.gz`（ARM 用 `arm64`），解压出 `rackauto`。
+
+**源码编译**（需要 Go 1.25+）：
 
 ```bash
 git clone https://github.com/Songxwn/Rack-auto.git
 cd Rack-auto
-cp configs/rackauto.example.yaml configs/rackauto.yaml
-# 把 public_url 改成机器能访问的地址，不要用 127.0.0.1
 go build -o bin/rackauto ./cmd/rackauto
-./bin/rackauto bootstrap -config configs/rackauto.yaml
-./bin/rackauto serve -config configs/rackauto.yaml
 ```
 
-浏览器打开 `http://<控制面>:8080`。
-
-`bootstrap` 会：
-
-1. 下载 iPXE 到 `data/tftp/`
-2. 下载 Alpine LTS 内核/initramfs/modloop 到 `data/ramos/<arch>/`
-3. 交叉编译 Linux `rackauto-agent` 到 `data/agent/`
-
-### 现有 DHCP
-
-把 next-server 指到控制面，BIOS `filename undionly.kpxe`，UEFI `filename ipxe.efi`。iPXE 随后请求 `/ipxe/boot.ipxe`。
-
-也可以在 Web「网络引导」里启用内置 DHCP，并指定一块**接入网卡**（只在该网卡上提供 PXE 地址）。需要 root/管理员权限绑定 UDP 67。
-
-### 装机流程
-
-1. 在「机器」里登记 BMC（IPMI 或 Redfish），或让服务器先 PXE 进 RAMOS 自动发现
-2. 在「镜像」登记 Ubuntu/Debian 等 cloud 镜像 URL，或上传文件
-3. 「装机」选择机器与镜像，填写用户、密码、SSH 公钥、分区、网卡
-4. 可选「同时 BMC PXE 重启」——设置一次 PXE 引导并电源循环
-5. Agent 在内存系统里分区、写镜像、注入配置；完成后把引导切回本地磁盘并重启
-
-Agent 也可在任意 Linux 上手工运行（用于无 PXE 的调试）：
+### 2. 写一份配置
 
 ```bash
-./rackauto-agent --url http://10.0.0.1:8080 --token <token>
+cp configs/rackauto.example.yaml configs/rackauto.yaml
 ```
 
-## 配置
+打开文件，把 `public_url` 改成**待装机服务器能访问的控制面地址**，例如 `http://10.0.0.50:8080`。不要填 `127.0.0.1`：PXE 起来之后，是服务器自己来拉内核的。
 
-见 `configs/rackauto.example.yaml`。常用项：
+建议同时设一个 `api_token`，打开网页时在右上角填同一串。
+
+### 3. 下载引导文件（只需一次）
+
+需要能访问公网（iPXE 与 Alpine 镜像）。
+
+```bash
+./bin/rackauto bootstrap -config configs/rackauto.yaml
+```
+
+若你用的是 Release 包、本机没有源码：把包里的 `rackauto-agent-linux-amd64` 放到 `data/agent/x86_64/rackauto-agent`（装 ARM 机器则用 arm64 包放到 `aarch64/`）。在源码目录执行 bootstrap 会自动交叉编译。详见 [部署教程](docs/deploy.md#6-bootstrap下载引导文件)。
+
+### 4. 启动
+
+DHCP / TFTP 需要特权端口，请用 root：
+
+```bash
+sudo ./bin/rackauto serve -config configs/rackauto.yaml
+```
+
+浏览器打开 `http://<控制面IP>:8080`。左下角变成 `CTRL // ONLINE` 就对了。
+
+### 5. 让服务器能 PXE
+
+- **实验室空网段：** 打开「网络引导」，选中连交换机的**接入网卡**，启用内置 DHCP，点保存并应用。同一二层不要再开别的 DHCP。
+- **机房已有 DHCP：** 不要开内置。把 `next-server` 指到控制面；BIOS 用 `undionly.kpxe`，UEFI 用 `ipxe.efi`。页面底部有可复制的 dhcpd / dnsmasq 片段。
+
+接着在「机器」里登记 BMC（或让服务器 PXE 一次自动报到），在「镜像」登记 cloud 镜像 URL，到「装机」填用户和 SSH 公钥后下发。逐步点击说明在 [第一次装机](docs/deploy.md#9-第一次装机)。
+
+## 常用配置
+
+完整示例见 `configs/rackauto.example.yaml`。Web「网络引导」里改的 DHCP 会存进数据库，优先于 YAML。
 
 | 项 | 说明 |
 | --- | --- |
-| `listen` | HTTP 控制台与 iPXE/API |
-| `public_url` | 服务器 PXE 后访问控制面的 URL |
-| `api_token` | 非空则 API 需要 `X-API-Token` |
+| `listen` | Web / iPXE / API，默认 `:8080` |
+| `public_url` | 服务器 PXE 后访问控制面的 URL，必须是对端可达地址 |
+| `api_token` | 非空则请求要带 `X-API-Token`（网页右上角填写） |
+| `data_dir` | 数据库、TFTP、镜像、Agent 存放目录 |
 | `tftp_listen` | 默认 `:69` |
-| `dhcp.enabled` | 内置 DHCP，也可在 Web 管理 |
-| `dhcp.interface` | DHCP / PXE 接入网卡 |
+| `dhcp.enabled` | 内置 DHCP，也可只在网页里开关 |
+| `dhcp.interface` | 只在这块接入网卡上应答 PXE |
+
+## 长期运行
+
+- systemd 单元示例：[deploy/rackauto.service](deploy/rackauto.service)
+- Docker（host 网络）：先 `cp configs/rackauto.example.yaml configs/rackauto.yaml` 并改好 `public_url`，再 `cd deploy && docker compose up -d --build`，然后在容器里跑一次 `bootstrap`。细节在 [Docker 部署](docs/deploy.md#11-docker-部署)。
 
 ## API 摘要
 
@@ -104,7 +125,7 @@ go build ./cmd/rackauto
 go build ./cmd/rackauto-agent
 ```
 
-GitHub Actions 在打 `v*` 标签时编译 linux/darwin/windows 多架构并发布 Release。
+GitHub Actions 在推送 `v*` 标签时编译 linux / darwin / windows 多架构并发布 Release。
 
 ## License
 

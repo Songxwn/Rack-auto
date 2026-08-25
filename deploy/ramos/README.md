@@ -1,9 +1,11 @@
 # Rack-auto RAMOS
 #
-# 推荐用法：在控制面主机执行
-#   rackauto bootstrap
-# 会下载 Alpine 内核/initramfs/modloop，并交叉编译 Linux Agent。
-# 机器 iPXE 启动后进入内存中的 Alpine，加载 apkovl 并运行 Agent。
+# 内存中的 Alpine：内核 / initramfs / Agent overlay。
+# 完整部署步骤见 docs/deploy.md。
 #
-# 若需完全离线，把 Alpine 仓库镜像到 data/ramos/alpine/<arch>/ 并把
-# iPXE 脚本中的 alpine_repo 指向控制面。
+# 在控制面执行一次：
+#   rackauto bootstrap -config configs/rackauto.yaml
+# 会下载 Alpine 到 data/ramos/<arch>/，并准备 Linux Agent。
+#
+# 完全离线时，把 Alpine netboot 文件放到 data/ramos/<arch>/，
+# 把 iPXE 文件放到 data/tftp/，并把 public_url 指到控制面。

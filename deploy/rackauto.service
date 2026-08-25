@@ -1,13 +1,14 @@
 [Unit]
 Description=Rack-auto bare-metal provisioner
+Documentation=https://github.com/Songxwn/Rack-auto/blob/main/docs/deploy.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/var/lib/rackauto
-ExecStart=/usr/local/bin/rackauto serve -config /etc/rackauto.yaml -data-dir /var/lib/rackauto
+WorkingDirectory=/opt/rackauto
+ExecStart=/opt/rackauto/bin/rackauto serve -config /opt/rackauto/configs/rackauto.yaml -data-dir /opt/rackauto/data
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65535
