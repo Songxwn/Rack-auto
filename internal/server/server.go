@@ -857,12 +857,27 @@ func (s *Server) speedUpload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) ipxeMenu(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write([]byte(s.Netboot.MenuScript()))
+	_, _ = w.Write([]byte(s.Netboot.MenuScriptBase(httpBase(r, s.Netboot.PublicURL()))))
 }
 
 func (s *Server) ipxeScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
-	_, _ = w.Write([]byte(s.Netboot.ScriptFor(r.URL.Query().Get("mac"), r.URL.Query().Get("arch"), r.URL.Query().Get("platform"))))
+	_, _ = w.Write([]byte(s.Netboot.ScriptForBase(r.URL.Query().Get("mac"), r.URL.Query().Get("arch"), r.URL.Query().Get("platform"), httpBase(r, s.Netboot.PublicURL()))))
+}
+
+func httpBase(r *http.Request, fallback string) string {
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return strings.TrimRight(fallback, "/")
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); p == "http" || p == "https" {
+		scheme = p
+	}
+	return scheme + "://" + host
 }
 
 func (s *Server) apkovl(w http.ResponseWriter, r *http.Request) {

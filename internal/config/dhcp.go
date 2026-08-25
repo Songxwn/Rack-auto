@@ -47,8 +47,17 @@ func (d DHCP) Validate() error {
 			return fmt.Errorf("地址池不在网段 %s 内", d.Subnet)
 		}
 	}
-	if d.Router != "" && net.ParseIP(d.Router).To4() == nil {
-		return fmt.Errorf("网关必须是 IPv4")
+	if d.Router != "" {
+		rip := net.ParseIP(d.Router)
+		if rip == nil || rip.To4() == nil {
+			return fmt.Errorf("网关必须是 IPv4")
+		}
+		if d.Subnet != "" {
+			n, err := ParseIPv4Net(d.Subnet)
+			if err == nil && !n.Contains(rip) {
+				return fmt.Errorf("网关 %s 不在网段 %s 内（会导致 iPXE Network unreachable）", d.Router, d.Subnet)
+			}
+		}
 	}
 	if d.NextServer != "" && net.ParseIP(d.NextServer).To4() == nil {
 		return fmt.Errorf("next-server 必须是 IPv4")
@@ -77,6 +86,32 @@ func (d DHCP) Mask() net.IPMask {
 		return n.Mask
 	}
 	return net.CIDRMask(24, 32)
+}
+
+// EffectiveRouter returns an on-link gateway. Option 3 must be in the PXE
+// subnet; a leftover default like 10.0.0.1 on 192.168.177.0/24 makes iPXE
+// report "Network unreachable" (err 28086011) and then loop.
+func (d DHCP) EffectiveRouter(fallback net.IP) string {
+	inNet := func(ip net.IP) bool {
+		if ip == nil {
+			return false
+		}
+		n, err := ParseIPv4Net(d.Subnet)
+		if err != nil {
+			return true
+		}
+		return n.Contains(ip)
+	}
+	if ip := net.ParseIP(d.Router); ip != nil && inNet(ip) {
+		return ip.To4().String()
+	}
+	if ip := net.ParseIP(d.NextServer); ip != nil && inNet(ip) {
+		return ip.To4().String()
+	}
+	if inNet(fallback) {
+		return fallback.To4().String()
+	}
+	return ""
 }
 
 func ParseIPv4Net(cidr string) (*net.IPNet, error) {

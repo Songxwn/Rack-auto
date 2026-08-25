@@ -1,11 +1,15 @@
 # Rack-auto RAMOS
 #
-# 内存中的 Alpine：内核 / initramfs / Agent overlay。
-# 完整部署步骤见 docs/deploy.md。
+# 内存 Alpine：内核 / initramfs / 本机 APK 仓库 / Agent overlay。
+# iPXE 固件打在控制面里，PXE 不访问 boot.ipxe.org。
+# 完整步骤见 docs/deploy.md。
 #
-# 在控制面执行一次：
+# 有网执行一次：
 #   rackauto bootstrap -config configs/rackauto.yaml
-# 会下载 Alpine 到 data/ramos/<arch>/，并准备 Linux Agent。
+# 之后可：
+#   rackauto bootstrap -offline
 #
-# 完全离线时，把 Alpine netboot 文件放到 data/ramos/<arch>/，
-# 把 iPXE 文件放到 data/tftp/，并把 public_url 指到控制面。
+# 离线拷贝整个 data/ 目录即可，包括：
+#   data/tftp/*.kpxe *.efi
+#   data/ramos/<arch>/vmlinuz-lts initramfs-lts modloop-lts
+#   data/ramos/alpine/v3.21/{main,community}/<arch>/

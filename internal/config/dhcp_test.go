@@ -32,3 +32,17 @@ func TestPoolOutsideSubnet(t *testing.T) {
 		t.Fatal("expected subnet error")
 	}
 }
+
+func TestRouterMustBeOnLink(t *testing.T) {
+	d := DHCP{Enabled: true, Interface: "eth0", Subnet: "192.168.177.0/24", RangeStart: "192.168.177.100", RangeEnd: "192.168.177.200", Router: "10.0.0.1"}
+	if err := d.Validate(); err == nil {
+		t.Fatal("expected router error")
+	}
+}
+
+func TestEffectiveRouterReplacesOffLinkDefault(t *testing.T) {
+	d := DHCP{Subnet: "192.168.177.0/24", Router: "10.0.0.1", NextServer: "192.168.177.1"}
+	if got := d.EffectiveRouter(nil); got != "192.168.177.1" {
+		t.Fatalf("got %s", got)
+	}
+}

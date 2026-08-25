@@ -12,7 +12,7 @@ dhcp:
   subnet: "10.0.0.0/24"
   range_start: "10.0.0.100"
   range_end: "10.0.0.200"
-  router: "10.0.0.1"
+  router: ""             # 必须和地址池同一网段；空则用 next-server。填错会导致 iPXE Network unreachable
   dns: "8.8.8.8"
   lease_sec: 3600
   next_server: ""        # 空则用接入网卡 IPv4

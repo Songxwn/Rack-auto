@@ -59,6 +59,9 @@ func main() {
 	if err := cfg.EnsureDirs(); err != nil {
 		log.Fatal(err)
 	}
+	if err := bootstrap.InstallIPXE(cfg.TFTPDir()); err != nil {
+		log.Printf("安装内置 iPXE: %v", err)
+	}
 	st, err := store.Open(cfg.DBPath())
 	if err != nil {
 		log.Fatal(err)
@@ -107,6 +110,7 @@ func runBootstrap(args []string) int {
 	fs := flag.NewFlagSet("bootstrap", flag.ExitOnError)
 	cfgPath := fs.String("config", env("RACKAUTO_CONFIG", "configs/rackauto.yaml"), "配置文件")
 	dataDir := fs.String("data-dir", "", "数据目录")
+	offline := fs.Bool("offline", false, "完全离线：只用内置 iPXE 和已缓存的 Alpine")
 	_ = fs.Parse(args)
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -116,7 +120,7 @@ func runBootstrap(args []string) int {
 	if *dataDir != "" {
 		cfg.DataDir = *dataDir
 	}
-	if err := bootstrap.Run(cfg, "."); err != nil {
+	if err := bootstrap.Run(cfg, ".", *offline); err != nil {
 		log.Println(err)
 		return 1
 	}
@@ -128,7 +132,7 @@ func usage() {
 
 用法:
   rackauto serve [选项]       启动控制面（HTTP / TFTP / 可选 DHCP）
-  rackauto bootstrap [选项]   下载 iPXE + Alpine RAMOS 并交叉编译 Agent
+  rackauto bootstrap [选项]   安装本机 iPXE、缓存 Alpine、编译 Agent
   rackauto version
 
 选项:
@@ -136,6 +140,7 @@ func usage() {
   -listen string       HTTP 监听
   -public-url string   机器可达的控制面 URL
   -data-dir string     数据目录
+  -offline             bootstrap 时不访问公网（需已有 Alpine 缓存）
 `, Version)
 }
 

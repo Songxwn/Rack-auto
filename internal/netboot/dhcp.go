@@ -77,6 +77,7 @@ func (s *Service) persistDHCP(d config.DHCP) error {
 
 func (s *Service) ApplyDHCP(d config.DHCP) error {
 	d.Normalize()
+	d.Router = d.EffectiveRouter(s.nextServerIP(d))
 	if err := d.Validate(); err != nil {
 		return err
 	}
@@ -142,6 +143,12 @@ func (s *Service) startDHCPLocked() error {
 		err := fmt.Errorf("无法确定 next-server，请填写接入网卡上的 IPv4 或 next-server")
 		s.dhcpErr = err.Error()
 		return err
+	}
+	if gw := d.EffectiveRouter(serverIP); gw != d.Router {
+		log.Printf("DHCP 网关 %q 不在 PXE 网段 %s，改用 %s", d.Router, d.Subnet, gw)
+		d.Router = gw
+		s.dhcpCfg.Router = gw
+		_ = s.persistDHCP(d)
 	}
 	laddr := d.ListenAddr
 	if laddr == "" {
@@ -245,15 +252,91 @@ func (s *Service) dhcpHandler(d config.DHCP, serverIP net.IP, mask net.IPMask, l
 }
 
 func BootFilename(m *dhcpv4.DHCPv4) string {
+	if IsIPXEClient(m) {
+		return "boot.ipxe"
+	}
 	for _, arch := range m.ClientArch() {
 		switch arch {
-		case iana.EFI_X86_64, iana.EFI_BC, iana.EFI_X86_64_HTTP, iana.EFI_ARM64, iana.EFI_ARM64_HTTP:
+		case iana.EFI_ARM64, iana.EFI_ARM64_HTTP:
+			return "ipxe-arm64.efi"
+		case iana.EFI_X86_64, iana.EFI_BC, iana.EFI_X86_64_HTTP:
 			return "ipxe.efi"
 		case iana.EFI_IA32:
 			return "ipxe-ia32.efi"
 		}
 	}
 	return "undionly.kpxe"
+}
+
+func IsIPXEClient(m *dhcpv4.DHCPv4) bool {
+	if m == nil {
+		return false
+	}
+	for _, uc := range m.UserClass() {
+		if strings.Contains(strings.ToLower(uc), "ipxe") {
+			return true
+		}
+	}
+	if strings.Contains(strings.ToLower(m.ClassIdentifier()), "ipxe") {
+		return true
+	}
+	return m.GetOneOption(dhcpv4.OptionEtherboot) != nil
+}
+
+func IPXEChainURL(nextServer net.IP, publicURL, listen string) string {
+	port := HTTPPort(publicURL, listen)
+	host := ""
+	if nextServer != nil && nextServer.To4() != nil && !nextServer.IsUnspecified() {
+		host = nextServer.To4().String()
+	} else {
+		host = hostOf(publicURL)
+	}
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	if port == "80" {
+		return fmt.Sprintf("http://%s/ipxe/boot.ipxe", host)
+	}
+	return fmt.Sprintf("http://%s:%s/ipxe/boot.ipxe", host, port)
+}
+
+func HTTPPort(publicURL, listen string) string {
+	if u := hostPortOf(publicURL); u != "" {
+		if _, p, err := net.SplitHostPort(u); err == nil && p != "" {
+			return p
+		}
+	}
+	l := strings.TrimSpace(listen)
+	if l != "" {
+		if strings.HasPrefix(l, ":") {
+			p := strings.TrimPrefix(l, ":")
+			if p != "" {
+				return p
+			}
+		}
+		if _, p, err := net.SplitHostPort(l); err == nil && p != "" {
+			return p
+		}
+	}
+	return "8080"
+}
+
+func hostOf(publicURL string) string {
+	hp := hostPortOf(publicURL)
+	if hp == "" {
+		return ""
+	}
+	h, _, err := net.SplitHostPort(hp)
+	if err != nil {
+		return hp
+	}
+	return h
+}
+
+func hostPortOf(publicURL string) string {
+	u := strings.TrimPrefix(strings.TrimPrefix(publicURL, "https://"), "http://")
+	u, _, _ = strings.Cut(u, "/")
+	return strings.TrimSpace(u)
 }
 
 func isConnClosed(err error) bool {

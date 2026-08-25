@@ -11,7 +11,7 @@
 3. [推荐网络怎么接](#3-推荐网络怎么接)
 4. [安装控制面](#4-安装控制面)
 5. [写配置（最容易写错的地方）](#5-写配置最容易写错的地方)
-6. [bootstrap：下载引导文件](#6-bootstrap下载引导文件)
+6. [bootstrap：本机 iPXE 与离线缓存](#6-bootstrap本机-ipxe-与离线缓存)
 7. [启动服务](#7-启动服务)
 8. [配置 DHCP](#8-配置-dhcp)
 9. [第一次装机](#9-第一次装机)
@@ -162,25 +162,33 @@ ip -br a
 
 ---
 
-## 6. bootstrap：下载引导文件
+## 6. bootstrap：本机 iPXE 与离线缓存
 
-控制面第一次启动前执行一次（需要访问 `boot.ipxe.org` 和 `dl-cdn.alpinelinux.org`）：
+iPXE 固件已经打进控制面程序，**PXE 阶段不会访问 boot.ipxe.org**。`serve` 启动时也会自动把 `undionly.kpxe` / `ipxe.efi` 写到 `data/tftp/`。
+
+Alpine 内核和装机用的 apk 包第一次需要联网缓存到本机；之后整个装机网可以离线。
 
 ```bash
-# 源码目录
+# 源码目录（有网，只需一次）
 ./bin/rackauto bootstrap -config configs/rackauto.yaml
 
 # /opt 安装
 sudo /opt/rackauto/bin/rackauto bootstrap \
   -config /opt/rackauto/configs/rackauto.yaml \
   -data-dir /opt/rackauto/data
+
+# 之后完全离线再执行（只校验缓存、重装内置 iPXE）
+./bin/rackauto bootstrap -offline -config configs/rackauto.yaml
 ```
 
-它会做三件事：
+它会做：
 
-1. 把 `undionly.kpxe`、`ipxe.efi`、`snponly.efi` 放到 `data/tftp/`
-2. 把 Alpine LTS 内核 / initramfs / modloop 放到 `data/ramos/x86_64` 与 `data/ramos/aarch64`
-3. 若当前目录能找到源码，再交叉编译 Linux Agent 到 `data/agent/`
+1. 把内置 iPXE 写到 `data/tftp/`（BIOS：`undionly.kpxe`，UEFI：`ipxe.efi`）
+2. 缓存 Alpine LTS 内核 / initramfs / modloop 到 `data/ramos/<arch>/`
+3. 缓存 RAMOS 需要的 apk 到 `data/ramos/alpine/v3.21/{main,community}/<arch>/`
+4. 若当前目录有源码，交叉编译 Linux Agent 到 `data/agent/`
+
+已经存在的文件会跳过。离线模式下缺内核或 APKINDEX 会直接报错，把有网环境生成的整个 `data/` 拷过来即可。
 
 已经存在且大于 1KB 的文件会跳过，可以重复执行。某次下载失败时，日志会打 `!`，修好网络后再跑一遍即可。
 
@@ -264,7 +272,9 @@ ISC dhcpd 示例：
 
 ```
 next-server 10.0.0.50;
-if option client-arch != 00:00 {
+if exists user-class and option user-class = "iPXE" {
+  filename "boot.ipxe";
+} elsif option client-arch != 00:00 {
   filename "ipxe.efi";
 } else {
   filename "undionly.kpxe";
@@ -274,9 +284,11 @@ if option client-arch != 00:00 {
 dnsmasq 示例：
 
 ```
+dhcp-userclass=set:ipxe,iPXE
+dhcp-boot=tag:ipxe,boot.ipxe
 dhcp-match=set:efi64,option:client-arch,7
-dhcp-boot=tag:efi64,ipxe.efi,,10.0.0.50
-dhcp-boot=undionly.kpxe,,10.0.0.50
+dhcp-boot=tag:!ipxe,tag:efi64,ipxe.efi,,10.0.0.50
+dhcp-boot=tag:!ipxe,undionly.kpxe,,10.0.0.50
 ```
 
 iPXE 自己 chainload 时：
@@ -385,6 +397,12 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 ---
 
 ## 13. 常见问题
+
+**iPXE 报 Network unreachable（https://ipxe.org/28086011），随后反复出现 iPXE 画面**  
+这是两件事叠在一起：
+
+1. **网关不在 PXE 网段。** 例如地址是 `192.168.177.100/24`，网关却是示例里的 `10.0.0.1`。打开「网络引导」，重新选一次接入网卡（会把网关改成这块网卡的 IP），再点保存并应用。
+2. **iPXE 循环。** 已经进入 iPXE 后应下发本机 TFTP 的 `boot.ipxe`，不能再给 `undionly.kpxe`。请更新控制面后重启，并把 `public_url` 改成 PXE 网段地址（例如 `http://192.168.177.1:8080`）。内核和脚本都从控制面拉取，不访问公网。
 
 **PXE 一直 DHCP timeout**  
 二层不通、选错接入网卡、或网段里另有 DHCP 在抢。抓包看 UDP 67/68。确认交换机没有 DHCP snooping 拦了控制面。

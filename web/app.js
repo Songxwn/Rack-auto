@@ -479,19 +479,23 @@ async function renderBoot() {
     </div>
     <div class="panel" style="margin-top:14px">
       <h3>沿用现有 DHCP 时的配置片段</h3>
-      <p class="hint">若不启用内置 DHCP：BIOS 用 undionly.kpxe，UEFI 用 ipxe.efi。iPXE 会 chainload 到下方脚本。</p>
+      <p class="hint">若不启用内置 DHCP：先下发本机 TFTP 上的 undionly.kpxe / ipxe.efi；客户端已成为 iPXE 后再给 <span class="mono">boot.ipxe</span>（仍走本机 TFTP，不访问公网）。</p>
       <pre class="log"># ISC dhcpd
-next-server ${escapeHtml((settings.public_url || "http://10.0.0.1:8080").replace(/^https?:\/\//,"").split(":")[0])};
-if option client-arch != 00:00 { filename "ipxe.efi"; } else { filename "undionly.kpxe"; }
+next-server ${escapeHtml((settings.public_url || "http://10.0.0.1:8080").replace(/^https?:\/\//,"").split("/")[0].split(":")[0])};
+if exists user-class and option user-class = "iPXE" {
+  filename "boot.ipxe";
+} elsif option client-arch != 00:00 {
+  filename "ipxe.efi";
+} else {
+  filename "undionly.kpxe";
+}
 
 # dnsmasq
+dhcp-userclass=set:ipxe,iPXE
+dhcp-boot=tag:ipxe,boot.ipxe
 dhcp-match=set:efi64,option:client-arch,7
-dhcp-boot=tag:efi64,ipxe.efi
-dhcp-boot=undionly.kpxe
-
-# iPXE
-dhcp
-chain ${escapeHtml(settings.public_url || "http://10.0.0.1:8080")}/ipxe/boot.ipxe
+dhcp-boot=tag:!ipxe,tag:efi64,ipxe.efi
+dhcp-boot=tag:!ipxe,undionly.kpxe
 </pre>
       <p class="hint">TFTP ${escapeHtml(settings.tftp_listen || "")} · 首次部署请执行 <span class="mono">rackauto bootstrap</span></p>
     </div>`;
@@ -502,10 +506,10 @@ chain ${escapeHtml(settings.public_url || "http://10.0.0.1:8080")}/ipxe/boot.ipx
       hint.textContent = "这块网卡没有 IPv4。请先给接入网卡配上 PXE 网段地址，或手工填写网段 / next-server。";
       return;
     }
-    hint.textContent = `将按 ${a.cidr} 填写网段与地址池（可再改）。`;
+    hint.textContent = `将按 ${a.cidr} 填写网段、网关与地址池（可再改）。网关必须和地址池同一网段。`;
     $("#d-subnet").value = a.network;
     $("#d-next").value = a.address;
-    if (!$("#d-gw").value) $("#d-gw").value = a.address;
+    $("#d-gw").value = a.address;
     $("#d-start").value = a.pool_start || "";
     $("#d-end").value = a.pool_end || "";
   };

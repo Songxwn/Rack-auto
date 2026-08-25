@@ -21,6 +21,9 @@ func TestScriptContainsKernel(t *testing.T) {
 	if !strings.Contains(out, "vmlinuz-lts") || !strings.Contains(out, "apkovl") {
 		t.Fatalf("missing ramos boot: %s", out)
 	}
+	if !strings.Contains(out, "ramos/alpine/v3.21/main") {
+		t.Fatalf("expected local alpine repo: %s", out)
+	}
 }
 
 func TestAPKOVL(t *testing.T) {

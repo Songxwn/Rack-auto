@@ -61,6 +61,11 @@ func (s *Service) PublicURL() string {
 func (s *Service) StartTFTP() error {
 	read := func(filename string, rf io.ReaderFrom) error {
 		filename = strings.TrimPrefix(filepath.ToSlash(filename), "/")
+		if filename == "boot.ipxe" || filename == "auto.ipxe" {
+			body := strings.NewReader(s.MenuScriptLocal())
+			_, err := rf.ReadFrom(body)
+			return err
+		}
 		path := filepath.Join(s.Cfg.TFTPDir(), filename)
 		f, err := os.Open(path)
 		if err != nil {
@@ -145,12 +150,18 @@ func after(a, b net.IP) bool {
 }
 
 func (s *Service) MenuScript() string {
-	base := s.PublicURL()
+	return s.MenuScriptBase(s.PublicURL())
+}
+
+func (s *Service) MenuScriptBase(base string) string {
+	base = strings.TrimRight(base, "/")
+	if base == "" {
+		base = s.PublicURL()
+	}
 	return fmt.Sprintf(`#!ipxe
 isset ${proxydhcp/next-server} && set next-server ${proxydhcp/next-server} ||
-echo Rack-auto network boot
+echo Rack-auto local boot
 set base %s
-iseq ${platform} efi && set bootloader efi || set bootloader bios
 chain ${base}/ipxe/script?mac=${mac}&arch=${buildarch}&platform=${platform} || goto failed
 :failed
 echo iPXE chain failed, retrying in 8s
@@ -159,8 +170,33 @@ reboot
 `, base)
 }
 
+// MenuScriptLocal is served from TFTP as boot.ipxe. It only talks to this
+// control plane (next-server), never boot.ipxe.org.
+func (s *Service) MenuScriptLocal() string {
+	port := HTTPPort(s.PublicURL(), s.Cfg.Listen)
+	return fmt.Sprintf(`#!ipxe
+echo Rack-auto iPXE (local / offline)
+isset ${next-server} || set next-server ${net0/next-server}
+isset ${next-server} || set next-server ${net0/dhcp-server}
+set base http://${next-server}:%s
+echo chaining ${base}/ipxe/script
+chain ${base}/ipxe/script?mac=${mac}&arch=${buildarch}&platform=${platform} || goto failed
+:failed
+echo failed to reach ${base} — check control-plane HTTP :%s
+sleep 8
+reboot
+`, port, port)
+}
+
 func (s *Service) ScriptFor(mac, arch, platform string) string {
-	base := s.PublicURL()
+	return s.ScriptForBase(mac, arch, platform, s.PublicURL())
+}
+
+func (s *Service) ScriptForBase(mac, arch, platform, base string) string {
+	base = strings.TrimRight(base, "/")
+	if base == "" {
+		base = s.PublicURL()
+	}
 	mac = NormalizeMAC(mac)
 	bootLocal := false
 	firmware := platformToFirmware(platform)
@@ -185,13 +221,17 @@ sanboot --no-describe --drive 0x80 || exit
 	if s.Store != nil && s.Store.S != nil {
 		token = s.Store.S.Setting("api_token", s.Cfg.APIToken)
 	}
+	ver := s.Cfg.Bootstrap.AlpineVersion
+	if ver == "" {
+		ver = "3.21"
+	}
 	return fmt.Sprintf(`#!ipxe
 echo Rack-auto RAMOS (%s / %s)
 set base %s
-kernel ${base}/ramos/%s/vmlinuz-lts initrd=initramfs-lts modules=loop,squashfs,sd-mod,usb-storage,ext4,nvme,ahci,xfs,btrfs alpine_repo=${base}/ramos/alpine/%s/ ip=dhcp apkovl=${base}/ipxe/apkovl.tgz?mac=${mac} modloop=${base}/ramos/%s/modloop-lts console=tty0 console=ttyS0,115200 rackauto_url=${base} rackauto_token=%s rackauto_mac=${mac} rackauto_fw=%s
+kernel ${base}/ramos/%s/vmlinuz-lts initrd=initramfs-lts modules=loop,squashfs,sd-mod,usb-storage,ext4,nvme,ahci,xfs,btrfs alpine_repo=${base}/ramos/alpine/v%s/main ${base}/ramos/alpine/v%s/community ip=dhcp apkovl=${base}/ipxe/apkovl.tgz?mac=${mac} modloop=${base}/ramos/%s/modloop-lts console=tty0 console=ttyS0,115200 rackauto_url=${base} rackauto_token=%s rackauto_mac=${mac} rackauto_fw=%s
 initrd ${base}/ramos/%s/initramfs-lts
 boot
-`, firmware, archDir, base, archDir, archDir, archDir, token, firmware, archDir)
+`, firmware, archDir, base, archDir, ver, ver, archDir, token, firmware, archDir)
 }
 
 func platformToFirmware(p string) string {

@@ -56,15 +56,15 @@ cp configs/rackauto.example.yaml configs/rackauto.yaml
 
 建议同时设一个 `api_token`，打开网页时在右上角填同一串。
 
-### 3. 下载引导文件（只需一次）
+### 3. 准备引导文件
 
-需要能访问公网（iPXE 与 Alpine 镜像）。
+iPXE 已内置，不必访问 `boot.ipxe.org`。Alpine 内核第一次需要联网缓存：
 
 ```bash
 ./bin/rackauto bootstrap -config configs/rackauto.yaml
 ```
 
-若你用的是 Release 包、本机没有源码：把包里的 `rackauto-agent-linux-amd64` 放到 `data/agent/x86_64/rackauto-agent`（装 ARM 机器则用 arm64 包放到 `aarch64/`）。在源码目录执行 bootstrap 会自动交叉编译。详见 [部署教程](docs/deploy.md#6-bootstrap下载引导文件)。
+若用 Release 包且没有源码：把 `rackauto-agent-linux-amd64` 放到 `data/agent/x86_64/rackauto-agent`。源码目录下 bootstrap 会交叉编译。详见 [部署教程](docs/deploy.md#6-bootstrap本机-ipxe-与离线缓存)。
 
 ### 4. 启动
 

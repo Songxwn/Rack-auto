@@ -1,0 +1,10 @@
+iPXE firmware binaries in this directory are from:
+
+  https://github.com/ipxe/ipxe/releases
+  archive: ipxeboot.tar.gz (v2.0.0)
+
+iPXE is licensed under GPL-2.0 (and GPL-compatible portions).
+Source code: https://github.com/ipxe/ipxe
+
+These files are redistributed so Rack-auto can PXE-boot machines with
+no access to boot.ipxe.org.
