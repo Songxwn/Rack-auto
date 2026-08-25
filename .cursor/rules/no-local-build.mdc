@@ -1,0 +1,12 @@
+---
+description: 不在本机编译调试；用 GitHub Release 交付
+alwaysApply: true
+---
+
+# 不在本地编译调试
+
+- 不要在开发机或控制面上 `go build` / `go test` 当交付手段，也不要让用户本机编过再跑。
+- 改完后：提交 → 推送 GitHub → 打 `v*` 标签，等 Actions 出 [Release](https://github.com/Songxwn/Rack-auto/releases)。
+- 控制面用 Release 包里的 `rackauto` / `rackauto-agent`（v0.3.0 仍带平台后缀）。Linux 上跑 PXE；Windows 只看 Web。
+- `bootstrap` 可以在 Linux 控制面跑（下 ISO / 写 iPXE），这不是编译。
+- 本机 Go 1.26 常缺 `unicode/norm` 表（`nfcSparseValues`）。只有用户明确要求源码编译时，才提 `GOTOOLCHAIN=go1.25.3` 和 `mkdir -p bin`。

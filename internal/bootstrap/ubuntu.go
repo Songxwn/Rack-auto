@@ -187,28 +187,56 @@ func copyFile(src, dest string) error {
 func ubuntuISOBase(cfg config.Config, rel, debArch string) string {
 	if debArch == "arm64" {
 		root := strings.TrimSpace(cfg.Bootstrap.UbuntuCDImage)
-		if root == "" {
+		if isAutoMirror(root) {
 			root = "https://cdimage.ubuntu.com/releases"
 		}
 		return strings.TrimRight(root, "/") + "/" + rel + "/release"
 	}
 	mirror := strings.TrimSpace(cfg.Bootstrap.UbuntuMirror)
-	if mirror == "" {
+	if isAutoMirror(mirror) {
 		mirror = "https://releases.ubuntu.com"
 	}
 	return strings.TrimRight(mirror, "/") + "/" + rel
 }
 
-func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch string) (name, sum, base string, err error) {
-	base = ubuntuISOBase(cfg, rel, debArch)
-	fallback := fmt.Sprintf("ubuntu-%s-live-server-%s.iso", rel, debArch)
-	sumsURL := strings.TrimRight(base, "/") + "/SHA256SUMS"
-	body, err := httpGetBody(hc, sumsURL)
-	if err != nil {
-		fmt.Printf("   ! 无法读取 %s（%v），回退文件名 %s\n", sumsURL, err, fallback)
-		return fallback, "", base, nil
+func pinnedMirror(cfg config.Config, debArch string) string {
+	if debArch == "arm64" {
+		return strings.TrimSpace(cfg.Bootstrap.UbuntuCDImage)
 	}
-	name, sum, err = parseLiveServerISO(string(body), debArch)
+	return strings.TrimSpace(cfg.Bootstrap.UbuntuMirror)
+}
+
+func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch string) (name, sum, base string, err error) {
+	fallback := fmt.Sprintf("ubuntu-%s-live-server-%s.iso", rel, debArch)
+	var body string
+	if pin := pinnedMirror(cfg, debArch); !isAutoMirror(pin) {
+		base = ubuntuISOBase(cfg, rel, debArch)
+		fmt.Println("   使用配置的镜像", base)
+		sumsURL := strings.TrimRight(base, "/") + "/SHA256SUMS"
+		body, err = httpGetBody(hc, sumsURL)
+		if err != nil {
+			fmt.Printf("   ! 无法读取 %s（%v），回退文件名 %s\n", sumsURL, err, fallback)
+			return fallback, "", base, nil
+		}
+	} else {
+		fmt.Println("   探测 Ubuntu 镜像延迟（选最低）…")
+		hit := pickFastestMirror(nil, mirrorsForArch(debArch), rel)
+		if hit.err != nil {
+			fmt.Printf("   ! %v，回退官方源\n", hit.err)
+			base = ubuntuISOBase(cfg, rel, debArch)
+			sumsURL := strings.TrimRight(base, "/") + "/SHA256SUMS"
+			body, err = httpGetBody(hc, sumsURL)
+			if err != nil {
+				fmt.Printf("   ! 无法读取 %s（%v），回退文件名 %s\n", sumsURL, err, fallback)
+				return fallback, "", base, nil
+			}
+		} else {
+			base = hit.base
+			body = hit.sums
+			fmt.Printf("   选用 %s（%s）%s\n", hit.name, formatLatency(hit.d), base)
+		}
+	}
+	name, sum, err = parseLiveServerISO(body, debArch)
 	if err != nil {
 		fmt.Printf("   ! 解析 SHA256SUMS 失败（%v），回退 %s\n", err, fallback)
 		return fallback, "", base, nil

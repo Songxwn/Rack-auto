@@ -36,10 +36,10 @@ type Boot struct {
 	// UbuntuRelease is the live-server release used as RAMOS (latest LTS).
 	UbuntuRelease string `yaml:"ubuntu_release"`
 	// UbuntuMirror is the directory that contains "<release>/ubuntu-*-live-server-amd64.iso".
-	// Empty uses https://releases.ubuntu.com. Example: https://mirrors.aliyun.com/ubuntu-releases
+	// Empty or "auto" probes public mirrors and picks the lowest HTTP latency.
 	UbuntuMirror string `yaml:"ubuntu_mirror"`
-	// UbuntuCDImage is the ARM (and other ports) image root. Empty uses
-	// https://cdimage.ubuntu.com/releases — ISO is at <root>/<release>/release/.
+	// UbuntuCDImage is the ARM (and other ports) image root.
+	// Empty or "auto" probes cdimage mirrors. ISO is at <root>/<release>/release/.
 	UbuntuCDImage string `yaml:"ubuntu_cdimage"`
 	// UbuntuISO is an optional local amd64 live-server ISO (skips download).
 	UbuntuISO string `yaml:"ubuntu_iso"`

@@ -19,8 +19,8 @@ dhcp:
 
 bootstrap:
   ubuntu_release: "26.04"          # 最新稳定版 LTS live-server，用作内存 RAMOS
-  ubuntu_mirror: ""                # 空=官方 releases.ubuntu.com；国内可填 https://mirrors.aliyun.com/ubuntu-releases
-  ubuntu_cdimage: ""               # ARM ISO 根；空=https://cdimage.ubuntu.com/releases
+  ubuntu_mirror: ""                # 空或 auto=探测延迟最低的镜像；也可钉死例如 https://mirrors.aliyun.com/ubuntu-releases
+  ubuntu_cdimage: ""               # ARM ISO 根；空或 auto=同样自动选镜像
   ubuntu_iso: ""                   # 已有 amd64 ISO 时填本地路径，跳过下载
   ubuntu_iso_arm: ""
   ubuntu_arches: ["x86_64"]        # 还要装 ARM 服务器时加上 aarch64（会再下一份 ISO）
