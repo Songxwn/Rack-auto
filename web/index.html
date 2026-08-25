@@ -4,34 +4,50 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rack-auto · 裸金属装机</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23070c12'/%3E%3Cpath d='M6 8h20M6 16h20M6 24h20' stroke='%233ee6c8' stroke-width='2'/%3E%3Cpath d='M6 8h8' stroke='%23e2b15a' stroke-width='2'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <div class="hud-bg" aria-hidden="true"></div>
+  <div class="scan" aria-hidden="true"></div>
+  <div class="scan-beam" aria-hidden="true"></div>
   <aside>
     <div class="brand">
-      <div class="mark"></div>
+      <div class="mark" aria-hidden="true"><i></i><i></i><i></i></div>
       <div>
-        <strong>Rack-auto</strong>
-        <small>裸金属装机平台</small>
+        <strong>RACK-AUTO</strong>
+        <small>BARE METAL OPS</small>
       </div>
     </div>
+    <div class="rail-label">NAVIGATION</div>
     <nav id="nav">
-      <button data-view="dash" class="active">总览</button>
-      <button data-view="machines">机器</button>
-      <button data-view="images">镜像</button>
-      <button data-view="install">装机</button>
-      <button data-view="stress">压测</button>
-      <button data-view="jobs">任务</button>
-      <button data-view="boot">网络引导</button>
+      <button data-view="dash" class="active"><span class="idx">01</span>总览</button>
+      <button data-view="machines"><span class="idx">02</span>机器</button>
+      <button data-view="images"><span class="idx">03</span>镜像</button>
+      <button data-view="install"><span class="idx">04</span>装机</button>
+      <button data-view="stress"><span class="idx">05</span>压测</button>
+      <button data-view="jobs"><span class="idx">06</span>任务</button>
+      <button data-view="boot"><span class="idx">07</span>网络引导</button>
     </nav>
-    <div class="aside-foot" id="health">控制面 · 连接中</div>
+    <div class="aside-sys">
+      <span>SYS.CORE</span>
+      <span>PXE · TFTP · DHCP</span>
+    </div>
+    <div class="aside-foot">
+      <span class="led" id="health-led"></span>
+      <span id="health">CTRL // 握手中</span>
+    </div>
   </aside>
   <main>
     <header>
-      <h1 id="title">总览</h1>
+      <div class="head-copy">
+        <div class="kicker" id="kicker">CONTROL / OVERVIEW</div>
+        <h1 id="title">总览</h1>
+      </div>
       <div class="toolbar">
-        <input id="token" type="password" placeholder="API Token（可选）" />
-        <button class="ghost" id="refresh">刷新</button>
+        <time id="clock" class="clock">--</time>
+        <input id="token" type="password" placeholder="API TOKEN" autocomplete="off" />
+        <button class="ghost" id="refresh">同步</button>
       </div>
     </header>
     <section id="view"></section>

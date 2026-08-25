@@ -20,15 +20,16 @@ type Config struct {
 }
 
 type DHCP struct {
-	Enabled    bool   `yaml:"enabled"`
-	Interface  string `yaml:"interface"`
-	ListenAddr string `yaml:"listen_addr"`
-	Subnet     string `yaml:"subnet"`
-	RangeStart string `yaml:"range_start"`
-	RangeEnd   string `yaml:"range_end"`
-	Router     string `yaml:"router"`
-	DNS        string `yaml:"dns"`
-	LeaseSec   int    `yaml:"lease_sec"`
+	Enabled    bool   `yaml:"enabled" json:"enabled"`
+	Interface  string `yaml:"interface" json:"interface"`
+	ListenAddr string `yaml:"listen_addr" json:"listen_addr"`
+	Subnet     string `yaml:"subnet" json:"subnet"`
+	RangeStart string `yaml:"range_start" json:"range_start"`
+	RangeEnd   string `yaml:"range_end" json:"range_end"`
+	Router     string `yaml:"router" json:"router"`
+	DNS        string `yaml:"dns" json:"dns"`
+	LeaseSec   int    `yaml:"lease_sec" json:"lease_sec"`
+	NextServer string `yaml:"next_server" json:"next_server"`
 }
 
 type Boot struct {
@@ -79,9 +80,7 @@ func (c *Config) normalize() {
 	if c.TFTPListen == "" {
 		c.TFTPListen = ":69"
 	}
-	if c.DHCP.LeaseSec <= 0 {
-		c.DHCP.LeaseSec = 3600
-	}
+	c.DHCP.Normalize()
 	if c.Bootstrap.AlpineVersion == "" {
 		c.Bootstrap.AlpineVersion = "3.21"
 	}

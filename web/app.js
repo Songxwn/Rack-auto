@@ -2,6 +2,15 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const view = $("#view");
 const titles = { dash: "总览", machines: "机器", images: "镜像", install: "装机向导", stress: "硬件压测", jobs: "任务", boot: "网络引导" };
+const kickers = {
+  dash: "CONTROL / OVERVIEW",
+  machines: "INVENTORY / NODES",
+  images: "STORAGE / IMAGES",
+  install: "PROVISION / WIZARD",
+  stress: "DIAG / STRESS",
+  jobs: "PIPELINE / JOBS",
+  boot: "NETBOOT / DHCP",
+};
 let current = "dash";
 let cache = { machines: [], images: [], jobs: [], events: [], overview: {} };
 
@@ -43,6 +52,7 @@ function navTo(name) {
   current = name;
   $$("#nav button").forEach(b => b.classList.toggle("active", b.dataset.view === name));
   $("#title").textContent = titles[name];
+  $("#kicker").textContent = kickers[name] || "";
   render();
 }
 $$("#nav button").forEach(b => b.addEventListener("click", () => navTo(b.dataset.view)));
@@ -55,30 +65,46 @@ async function load() {
       fetch("/api/v1/health").then(r => r.json()).catch(() => ({ ok: false })),
     ]);
     cache = { overview, machines, images, jobs, events };
-    $("#health").textContent = health.ok ? "控制面 · 在线" : "控制面 · 离线";
+    setHealth(health.ok, health.ok ? "CTRL // ONLINE" : "CTRL // OFFLINE");
   } catch (e) {
-    $("#health").textContent = "控制面 · " + e.message;
+    setHealth(false, "CTRL // NO LINK");
   }
+}
+
+function setHealth(ok, text) {
+  $("#health").textContent = text;
+  const led = $("#health-led");
+  if (!led) return;
+  led.classList.toggle("on", !!ok);
+  led.classList.toggle("off", !ok);
 }
 
 function render() {
   const fn = { dash: renderDash, machines: renderMachines, images: renderImages, install: renderInstall, stress: renderStress, jobs: renderJobs, boot: renderBoot }[current];
+  view.classList.remove("in");
   fn();
+  void view.offsetWidth;
+  view.classList.add("in");
 }
 
 function renderDash() {
   const o = cache.overview || {};
   view.innerHTML = `
     <div class="cards">
-      <div class="card"><div class="k">机器</div><div class="v">${o.machines || 0}</div></div>
-      <div class="card"><div class="k">在线 Agent</div><div class="v led">${o.online || 0}</div></div>
-      <div class="card"><div class="k">镜像</div><div class="v">${o.images || 0}</div></div>
-      <div class="card"><div class="k">运行中任务</div><div class="v">${o.running || 0}</div></div>
+      <div class="card"><div class="k">NODES</div><div class="v">${o.machines || 0}</div><div class="bar"></div></div>
+      <div class="card"><div class="k">AGENTS ONLINE</div><div class="v led-num">${o.online || 0}</div><div class="bar"></div></div>
+      <div class="card"><div class="k">IMAGES</div><div class="v">${o.images || 0}</div><div class="bar"></div></div>
+      <div class="card"><div class="k">JOBS LIVE</div><div class="v">${o.running || 0}</div><div class="bar"></div></div>
     </div>
-    <div class="panel" style="margin-top:18px">
-      <h3>最近事件</h3>
-      ${(cache.events || []).map(e => `<div class="hint"><span class="mono">${escapeHtml(e.created_at)}</span> · ${escapeHtml(e.level)} · ${escapeHtml(e.message)}</div>`).join("") || "<div class='hint'>暂无事件</div>"}
+    <div class="panel hud-strip">
+      <div>DHCP UPLINK　${o.dhcp_running ? `<span class="badge ok">LIVE · ${escapeHtml(o.dhcp_interface || "")}</span>` : `<span class="badge">STANDBY</span>`}</div>
+      <button class="ghost" id="go-boot">打开 DHCP</button>
+    </div>
+    <div class="panel telemetry">
+      <h3>TELEMETRY</h3>
+      ${(cache.events || []).map(e => `<div class="event"><span class="t mono">${escapeHtml(e.created_at)}</span><span class="badge ${e.level === "error" ? "bad" : e.level === "warn" ? "warn" : "ok"}">${escapeHtml(e.level)}</span><span>${escapeHtml(e.message)}</span></div>`).join("") || "<div class='empty'>NO SIGNAL · 等待节点上报</div>"}
     </div>`;
+  $("#go-boot").onclick = () => navTo("boot");
 }
 
 function renderMachines() {
@@ -89,7 +115,7 @@ function renderMachines() {
     <div class="panel">
       <table>
         <thead><tr><th>名称</th><th>MAC / IP</th><th>状态</th><th>固件</th><th>BMC</th><th>硬件</th><th></th></tr></thead>
-        <tbody>${(cache.machines || []).map(m => `
+        <tbody>${(cache.machines || []).length ? (cache.machines || []).map(m => `
           <tr>
             <td>${escapeHtml(m.name)}<div class="hint mono">${escapeHtml(m.id)}</div></td>
             <td class="mono">${escapeHtml(m.mac)}<div>${escapeHtml(m.ip || "")}</div></td>
@@ -104,7 +130,7 @@ function renderMachines() {
               <button data-act="off" data-id="${m.id}">关机</button>
               <button data-act="cycle" data-id="${m.id}">重启</button>
             </td>
-          </tr>`).join("")}
+          </tr>`).join("") : `<tr><td colspan="7" class="empty">NO NODES · 尚未登记机器</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -224,12 +250,12 @@ function renderImages() {
     </div>
     <div class="panel" style="margin-top:14px">
       <table><thead><tr><th>名称</th><th>类型</th><th>大小</th><th>URL</th><th></th></tr></thead>
-      <tbody>${(cache.images||[]).map(i => `<tr>
+      <tbody>${(cache.images||[]).length ? (cache.images||[]).map(i => `<tr>
         <td>${escapeHtml(i.name)}<div class="hint">${escapeHtml(i.os_family||"")}</div></td>
         <td>${escapeHtml(i.kind)}</td><td>${fmtBytes(i.size_b)}</td>
         <td class="mono hint">${escapeHtml(i.url)}</td>
         <td><button class="danger" data-del="${i.id}">删除</button></td>
-      </tr>`).join("")}</tbody></table>
+      </tr>`).join("") : `<tr><td colspan="5" class="empty">NO IMAGES · 登记 URL 或上传镜像</td></tr>`}</tbody></table>
     </div>`;
   $("#i-add").onclick = async () => {
     try {
@@ -375,14 +401,14 @@ function renderJobs() {
     <div class="panel">
       <table>
         <thead><tr><th>任务</th><th>机器</th><th>状态</th><th>进度</th><th>信息</th><th></th></tr></thead>
-        <tbody>${(cache.jobs||[]).map(j => `<tr>
+        <tbody>${(cache.jobs||[]).length ? (cache.jobs||[]).map(j => `<tr>
           <td>${escapeHtml(j.type)}<div class="hint mono">${escapeHtml(j.id)}</div></td>
           <td class="mono">${escapeHtml(j.machine_id)}</td>
           <td>${badge(j.status)}</td>
-          <td>${j.progress || 0}%</td>
+          <td class="mono">${j.progress || 0}%<div class="prog"><i style="width:${Math.max(0, Math.min(100, j.progress || 0))}%"></i></div></td>
           <td>${escapeHtml(j.message || "")}</td>
           <td><button data-j="${j.id}">日志</button></td>
-        </tr>`).join("")}</tbody>
+        </tr>`).join("") : `<tr><td colspan="6" class="empty">NO JOBS · 装机与压测任务会出现在这里</td></tr>`}</tbody>
       </table>
     </div>`;
   view.onclick = async (ev) => {
@@ -398,7 +424,13 @@ function renderJobs() {
 
 async function renderBoot() {
   let settings = {};
-  try { settings = await api("/settings"); } catch {}
+  try { settings = await api("/settings"); } catch (e) { view.innerHTML = `<div class="panel">${escapeHtml(e.message)}</div>`; return; }
+  const dhcp = settings.dhcp || {};
+  const st = settings.dhcp_status || {};
+  const nics = settings.nics || [];
+  const statusBadge = st.running
+    ? `<span class="badge ok">运行中</span>`
+    : (st.error ? `<span class="badge bad">失败</span>` : `<span class="badge">已停止</span>`);
   view.innerHTML = `
     <div class="panel">
       <h3>控制面地址</h3>
@@ -408,8 +440,46 @@ async function renderBoot() {
         <div><label>API Token</label><input id="b-tok" type="password" placeholder="留空不修改"></div>
       </div>
       <button class="primary" id="b-save" style="margin-top:10px">保存</button>
-      <h3>现有 DHCP 配置片段</h3>
-      <p class="hint">BIOS 用 undionly.kpxe，UEFI 用 ipxe.efi。iPXE 会 chainload 到下方脚本。</p>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <h3 style="margin:0">内置 DHCP 服务器</h3>
+        <div>${statusBadge} <span class="hint">${st.running ? escapeHtml(st.interface || "") + " · " + escapeHtml(st.listen || "") : escapeHtml(st.error || "未监听")}</span></div>
+      </div>
+      <p class="hint">选择连接装机交换机 / PXE 网段的<strong>接入网卡</strong>，DHCP 只在这块网卡上应答。需要绑定 UDP 67，Linux 请用 root，Windows 请以管理员运行。</p>
+      <label><input type="checkbox" id="d-on" ${dhcp.enabled ? "checked" : ""}> 启用内置 DHCP</label>
+      <label>接入网卡</label>
+      <select id="d-if">
+        <option value="">（选择网卡）</option>
+        ${nics.map(n => {
+          const ips = (n.ipv4 || []).map(x => x.cidr).join(", ") || "无 IPv4";
+          const sel = n.name === dhcp.interface ? "selected" : "";
+          return `<option value="${escapeHtml(n.name)}" ${sel} data-nic="${encodeURIComponent(JSON.stringify(n))}">${escapeHtml(n.name)} · ${escapeHtml(ips)} ${n.up ? "· UP" : "· DOWN"}</option>`;
+        }).join("")}
+      </select>
+      <p class="hint" id="d-if-hint"></p>
+      <div class="row3">
+        <div><label>网段</label><input id="d-subnet" value="${escapeHtml(dhcp.subnet || "")}" placeholder="10.0.0.0/24"></div>
+        <div><label>网关</label><input id="d-gw" value="${escapeHtml(dhcp.router || "")}" placeholder="10.0.0.1"></div>
+        <div><label>next-server（TFTP）</label><input id="d-next" value="${escapeHtml(dhcp.next_server || "")}" placeholder="接入网卡 IPv4"></div>
+      </div>
+      <div class="row3">
+        <div><label>地址池起始</label><input id="d-start" value="${escapeHtml(dhcp.range_start || "")}"></div>
+        <div><label>地址池结束</label><input id="d-end" value="${escapeHtml(dhcp.range_end || "")}"></div>
+        <div><label>DNS</label><input id="d-dns" value="${escapeHtml(dhcp.dns || "8.8.8.8")}" placeholder="8.8.8.8,1.1.1.1"></div>
+      </div>
+      <div class="row">
+        <div><label>租约（秒）</label><input id="d-lease" value="${dhcp.lease_sec || 3600}"></div>
+        <div><label>监听地址</label><input id="d-listen" value="${escapeHtml(dhcp.listen_addr || "0.0.0.0:67")}"></div>
+      </div>
+      <div class="actions" style="margin-top:14px">
+        <button class="primary" id="d-apply">保存并应用</button>
+        <button id="d-stop">停止 DHCP</button>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h3>沿用现有 DHCP 时的配置片段</h3>
+      <p class="hint">若不启用内置 DHCP：BIOS 用 undionly.kpxe，UEFI 用 ipxe.efi。iPXE 会 chainload 到下方脚本。</p>
       <pre class="log"># ISC dhcpd
 next-server ${escapeHtml((settings.public_url || "http://10.0.0.1:8080").replace(/^https?:\/\//,"").split(":")[0])};
 if option client-arch != 00:00 { filename "ipxe.efi"; } else { filename "undionly.kpxe"; }
@@ -418,19 +488,66 @@ if option client-arch != 00:00 { filename "ipxe.efi"; } else { filename "undionl
 dhcp-match=set:efi64,option:client-arch,7
 dhcp-boot=tag:efi64,ipxe.efi
 dhcp-boot=undionly.kpxe
-dhcp-option=66,${escapeHtml((settings.public_url || "").replace(/^https?:\/\//,"").split(":")[0])}
 
-# iPXE 嵌入脚本 / 手工
+# iPXE
 dhcp
 chain ${escapeHtml(settings.public_url || "http://10.0.0.1:8080")}/ipxe/boot.ipxe
 </pre>
-      <p class="hint">内置 DHCP：${settings.dhcp_enabled ? "已启用" : "未启用"} · TFTP ${escapeHtml(settings.tftp_listen || "")}</p>
-      <p class="hint">首次部署请在控制面主机执行 <span class="mono">rackauto bootstrap</span>，下载 iPXE、Alpine RAMOS 内核并编译 Linux Agent。</p>
+      <p class="hint">TFTP ${escapeHtml(settings.tftp_listen || "")} · 首次部署请执行 <span class="mono">rackauto bootstrap</span></p>
     </div>`;
+  const fillFromNic = (nic) => {
+    const a = (nic.ipv4 || [])[0];
+    const hint = $("#d-if-hint");
+    if (!a) {
+      hint.textContent = "这块网卡没有 IPv4。请先给接入网卡配上 PXE 网段地址，或手工填写网段 / next-server。";
+      return;
+    }
+    hint.textContent = `将按 ${a.cidr} 填写网段与地址池（可再改）。`;
+    $("#d-subnet").value = a.network;
+    $("#d-next").value = a.address;
+    if (!$("#d-gw").value) $("#d-gw").value = a.address;
+    $("#d-start").value = a.pool_start || "";
+    $("#d-end").value = a.pool_end || "";
+  };
+  $("#d-if").onchange = () => {
+    const opt = $("#d-if").selectedOptions[0];
+    if (!opt || !opt.dataset.nic) { $("#d-if-hint").textContent = ""; return; }
+    try { fillFromNic(JSON.parse(decodeURIComponent(opt.dataset.nic))); } catch {}
+  };
+  if (dhcp.interface) {
+    const opt = [...$("#d-if").options].find(o => o.value === dhcp.interface);
+    if (opt && opt.dataset.nic && !dhcp.subnet) {
+      try { fillFromNic(JSON.parse(decodeURIComponent(opt.dataset.nic))); } catch {}
+    }
+  }
+  const collectDHCP = () => ({
+    enabled: $("#d-on").checked,
+    interface: $("#d-if").value,
+    subnet: $("#d-subnet").value.trim(),
+    router: $("#d-gw").value.trim(),
+    next_server: $("#d-next").value.trim(),
+    range_start: $("#d-start").value.trim(),
+    range_end: $("#d-end").value.trim(),
+    dns: $("#d-dns").value.trim(),
+    lease_sec: Number($("#d-lease").value || 3600),
+    listen_addr: $("#d-listen").value.trim() || "0.0.0.0:67",
+  });
   $("#b-save").onclick = async () => {
     try {
       await api("/settings", { method: "PUT", body: JSON.stringify({ public_url: $("#b-url").value, api_token: $("#b-tok").value }) });
       alert("已保存");
+    } catch (e) { alert(e.message); }
+  };
+  $("#d-apply").onclick = async () => {
+    try {
+      await api("/dhcp/apply", { method: "POST", body: JSON.stringify(collectDHCP()) });
+      await load(); render();
+    } catch (e) { alert(e.message); }
+  };
+  $("#d-stop").onclick = async () => {
+    try {
+      await api("/dhcp/stop", { method: "POST", body: "{}" });
+      await load(); render();
     } catch (e) { alert(e.message); }
   };
 }
@@ -443,6 +560,14 @@ function openModal(html) {
   m.onclick = (e) => { if (e.target === m) closeModal(); };
 }
 function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
+
+function tickClock() {
+  const el = $("#clock");
+  if (!el) return;
+  el.textContent = new Date().toISOString().replace("T", " ").slice(0, 19) + " Z";
+}
+tickClock();
+setInterval(tickClock, 1000);
 
 load().then(render);
 setInterval(() => { load().then(() => { if (["dash","jobs","machines"].includes(current)) render(); }); }, 8000);

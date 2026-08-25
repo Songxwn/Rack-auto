@@ -13,9 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/insomniacslk/dhcp/dhcpv4"
-	"github.com/insomniacslk/dhcp/dhcpv4/server4"
-	"github.com/insomniacslk/dhcp/iana"
 	"github.com/pin/tftp/v3"
 
 	"github.com/Songxwn/Rack-auto/internal/config"
@@ -27,6 +24,13 @@ type Service struct {
 	Cfg   config.Config
 	Store *StoreView
 	tftp  *tftp.Server
+
+	dhcpMu    sync.Mutex
+	dhcpCfg   config.DHCP
+	dhcpSrv   interface{ Close() error }
+	dhcpErr   string
+	dhcpOn    bool
+	dhcpSince time.Time
 }
 
 type StoreView struct {
@@ -41,7 +45,10 @@ func (v *StoreView) MachineByMAC(mac string) (model.Machine, error) {
 }
 
 func New(cfg config.Config, st *store.Store) *Service {
-	return &Service{Cfg: cfg, Store: &StoreView{S: st}}
+	s := &Service{Cfg: cfg, Store: &StoreView{S: st}, dhcpCfg: cfg.DHCP}
+	s.dhcpCfg.Normalize()
+	s.dhcpCfg = s.loadDHCPLocked()
+	return s
 }
 
 func (s *Service) PublicURL() string {
@@ -73,83 +80,6 @@ func (s *Service) StartTFTP() error {
 		_ = srv.ListenAndServe(s.Cfg.TFTPListen)
 	}()
 	return nil
-}
-
-func (s *Service) StartDHCP() error {
-	if !s.Cfg.DHCP.Enabled {
-		return nil
-	}
-	serverIP := inferServerIP(s.PublicURL())
-	start := net.ParseIP(s.Cfg.DHCP.RangeStart)
-	end := net.ParseIP(s.Cfg.DHCP.RangeEnd)
-	router := net.ParseIP(s.Cfg.DHCP.Router)
-	if start == nil || end == nil {
-		return fmt.Errorf("DHCP 地址池无效")
-	}
-	leases := newLeasePool(start, end)
-	handler := func(conn net.PacketConn, peer net.Addr, m *dhcpv4.DHCPv4) {
-		if m.OpCode != dhcpv4.OpcodeBootRequest {
-			return
-		}
-		mt := m.MessageType()
-		if mt != dhcpv4.MessageTypeDiscover && mt != dhcpv4.MessageTypeRequest {
-			return
-		}
-		ip := leases.Assign(m.ClientHWAddr)
-		filename := BootFilename(m)
-		modifiers := []dhcpv4.Modifier{
-			dhcpv4.WithYourIP(ip),
-			dhcpv4.WithLeaseTime(uint32(s.Cfg.DHCP.LeaseSec)),
-			dhcpv4.WithServerIP(serverIP),
-			dhcpv4.WithOption(dhcpv4.OptTFTPServerName(serverIP.String())),
-			dhcpv4.WithOption(dhcpv4.OptBootFileName(filename)),
-			dhcpv4.WithOption(dhcpv4.OptServerIdentifier(serverIP)),
-			dhcpv4.WithNetmask(net.CIDRMask(24, 32)),
-			func(d *dhcpv4.DHCPv4) { d.BootFileName = filename },
-		}
-		if router != nil {
-			modifiers = append(modifiers, dhcpv4.WithRouter(router))
-		}
-		if dns := net.ParseIP(s.Cfg.DHCP.DNS); dns != nil {
-			modifiers = append(modifiers, dhcpv4.WithDNS(dns))
-		}
-		reply, err := dhcpv4.NewReplyFromRequest(m, modifiers...)
-		if err != nil {
-			return
-		}
-		if mt == dhcpv4.MessageTypeDiscover {
-			reply.UpdateOption(dhcpv4.OptMessageType(dhcpv4.MessageTypeOffer))
-		} else {
-			reply.UpdateOption(dhcpv4.OptMessageType(dhcpv4.MessageTypeAck))
-		}
-		_, _ = conn.WriteTo(reply.ToBytes(), peer)
-	}
-	laddr := s.Cfg.DHCP.ListenAddr
-	if laddr == "" {
-		laddr = "0.0.0.0:67"
-	}
-	addr, err := net.ResolveUDPAddr("udp4", laddr)
-	if err != nil {
-		return err
-	}
-	srv, err := server4.NewServer(s.Cfg.DHCP.Interface, addr, handler)
-	if err != nil {
-		return err
-	}
-	go func() { _ = srv.Serve() }()
-	return nil
-}
-
-func BootFilename(m *dhcpv4.DHCPv4) string {
-	for _, arch := range m.ClientArch() {
-		switch arch {
-		case iana.EFI_X86_64, iana.EFI_BC, iana.EFI_X86_64_HTTP, iana.EFI_ARM64, iana.EFI_ARM64_HTTP:
-			return "ipxe.efi"
-		case iana.EFI_IA32:
-			return "ipxe-ia32.efi"
-		}
-	}
-	return "undionly.kpxe"
 }
 
 func inferServerIP(publicURL string) net.IP {

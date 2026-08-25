@@ -81,8 +81,9 @@ func main() {
 	}
 	if err := nb.StartDHCP(); err != nil {
 		log.Printf("DHCP 启动失败: %v", err)
-	} else if cfg.DHCP.Enabled {
-		log.Printf("DHCP 已启用 %s", cfg.DHCP.ListenAddr)
+	} else if nb.CurrentDHCP().Enabled {
+		st := nb.DHCPStatus()
+		log.Printf("DHCP 网卡 %s 监听 %s", st.Interface, st.Listen)
 	}
 
 	srv := server.New(cfg, st, nb)
@@ -98,6 +99,7 @@ func main() {
 	<-ch
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	nb.CloseDHCP()
 	_ = httpSrv.Shutdown(ctx)
 }
 

@@ -41,6 +41,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.auth(s.events))
 	mux.HandleFunc("GET /api/v1/settings", s.auth(s.getSettings))
 	mux.HandleFunc("PUT /api/v1/settings", s.auth(s.putSettings))
+	mux.HandleFunc("GET /api/v1/nics", s.auth(s.listNICs))
+	mux.HandleFunc("POST /api/v1/dhcp/apply", s.auth(s.applyDHCP))
+	mux.HandleFunc("POST /api/v1/dhcp/stop", s.auth(s.stopDHCP))
 
 	mux.HandleFunc("GET /api/v1/machines", s.auth(s.listMachines))
 	mux.HandleFunc("POST /api/v1/machines", s.auth(s.createMachine))
@@ -161,6 +164,9 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	st := s.Netboot.DHCPStatus()
+	ov.DHCPRunning = st.Running
+	ov.DHCPInterface = st.Interface
 	writeJSON(w, 200, ov)
 }
 
@@ -174,20 +180,36 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	nics, err := netboot.ListNICs()
+	if err != nil {
+		nics = []netboot.HostNIC{}
+	}
 	writeJSON(w, 200, map[string]any{
-		"public_url":     s.Store.Setting("public_url", s.Cfg.PublicURL),
-		"api_token_set":  s.token() != "",
-		"dhcp_enabled":   s.Cfg.DHCP.Enabled,
-		"tftp_listen":    s.Cfg.TFTPListen,
-		"listen":         s.Cfg.Listen,
-		"data_dir":       s.Cfg.DataDir,
+		"public_url":    s.Store.Setting("public_url", s.Cfg.PublicURL),
+		"api_token_set": s.token() != "",
+		"tftp_listen":   s.Cfg.TFTPListen,
+		"listen":        s.Cfg.Listen,
+		"data_dir":      s.Cfg.DataDir,
+		"dhcp":          s.Netboot.CurrentDHCP(),
+		"dhcp_status":   s.Netboot.DHCPStatus(),
+		"nics":          nics,
 	})
+}
+
+func (s *Server) listNICs(w http.ResponseWriter, r *http.Request) {
+	nics, err := netboot.ListNICs()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, 200, nics)
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		PublicURL string `json:"public_url"`
-		APIToken  string `json:"api_token"`
+		PublicURL string       `json:"public_url"`
+		APIToken  string       `json:"api_token"`
+		DHCP      *config.DHCP `json:"dhcp"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -199,7 +221,45 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if in.APIToken != "" {
 		_ = s.Store.SetSetting("api_token", in.APIToken)
 	}
+	if in.DHCP != nil {
+		if err := s.Netboot.ApplyDHCP(*in.DHCP); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		s.Store.AddEvent("info", dhcpEvent(*in.DHCP, s.Netboot.DHCPStatus().Running), "")
+	}
 	s.getSettings(w, r)
+}
+
+func (s *Server) applyDHCP(w http.ResponseWriter, r *http.Request) {
+	var d config.DHCP
+	if err := readJSON(r, &d); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if err := s.Netboot.ApplyDHCP(d); err != nil {
+		s.Store.AddEvent("error", "DHCP 应用失败: "+err.Error(), "")
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	s.Store.AddEvent("info", dhcpEvent(d, s.Netboot.DHCPStatus().Running), "")
+	s.getSettings(w, r)
+}
+
+func (s *Server) stopDHCP(w http.ResponseWriter, r *http.Request) {
+	s.Netboot.StopDHCP()
+	s.Store.AddEvent("info", "已停止内置 DHCP", "")
+	s.getSettings(w, r)
+}
+
+func dhcpEvent(d config.DHCP, running bool) string {
+	if !d.Enabled {
+		return "已关闭内置 DHCP"
+	}
+	if running {
+		return "DHCP 已在接入网卡 " + d.Interface + " 上运行"
+	}
+	return "已保存 DHCP 配置（接入网卡 " + d.Interface + "）"
 }
 
 func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {

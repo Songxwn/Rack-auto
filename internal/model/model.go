@@ -3,13 +3,13 @@ package model
 import "time"
 
 const (
-	MachineDiscovered = "discovered"
-	MachineReady      = "ready"
-	MachineInstalling = "installing"
-	MachineStressing  = "stressing"
+	MachineDiscovered  = "discovered"
+	MachineReady       = "ready"
+	MachineInstalling  = "installing"
+	MachineStressing   = "stressing"
 	MachineProvisioned = "provisioned"
-	MachineOffline    = "offline"
-	MachineError      = "error"
+	MachineOffline     = "offline"
+	MachineError       = "error"
 
 	FirmwareBIOS = "bios"
 	FirmwareUEFI = "uefi"
@@ -24,11 +24,11 @@ const (
 	JobInstall = "install"
 	JobStress  = "stress"
 
-	JobPending    = "pending"
-	JobRunning    = "running"
-	JobSucceeded  = "succeeded"
-	JobFailed     = "failed"
-	JobCancelled  = "cancelled"
+	JobPending   = "pending"
+	JobRunning   = "running"
+	JobSucceeded = "succeeded"
+	JobFailed    = "failed"
+	JobCancelled = "cancelled"
 
 	ImageCloudDisk = "cloud-disk"
 	ImageCloudRoot = "cloud-root"
@@ -64,17 +64,17 @@ func (m Machine) Public() Machine {
 }
 
 type Inventory struct {
-	Hostname  string   `json:"hostname"`
-	Firmware  string   `json:"firmware"`
-	Arch      string   `json:"arch"`
-	CPUs      int      `json:"cpus"`
-	CPUModel  string   `json:"cpu_model"`
-	MemoryMB  int      `json:"memory_mb"`
-	Disks     []Disk   `json:"disks"`
-	NICs      []NIC    `json:"nics"`
-	BMC       string   `json:"bmc,omitempty"`
-	Kernel    string   `json:"kernel"`
-	UptimeSec int64    `json:"uptime_sec"`
+	Hostname  string `json:"hostname"`
+	Firmware  string `json:"firmware"`
+	Arch      string `json:"arch"`
+	CPUs      int    `json:"cpus"`
+	CPUModel  string `json:"cpu_model"`
+	MemoryMB  int    `json:"memory_mb"`
+	Disks     []Disk `json:"disks"`
+	NICs      []NIC  `json:"nics"`
+	BMC       string `json:"bmc,omitempty"`
+	Kernel    string `json:"kernel"`
+	UptimeSec int64  `json:"uptime_sec"`
 }
 
 type Disk struct {
@@ -87,12 +87,12 @@ type Disk struct {
 }
 
 type NIC struct {
-	Name string   `json:"name"`
-	MAC  string   `json:"mac"`
-	IPs  []string `json:"ips"`
-	MTU  int      `json:"mtu"`
-	Up   bool     `json:"up"`
-	Speed string  `json:"speed"`
+	Name  string   `json:"name"`
+	MAC   string   `json:"mac"`
+	IPs   []string `json:"ips"`
+	MTU   int      `json:"mtu"`
+	Up    bool     `json:"up"`
+	Speed string   `json:"speed"`
 }
 
 type Image struct {
@@ -149,8 +149,8 @@ type Partition struct {
 }
 
 type NetConfig struct {
-	Hostname string       `json:"hostname"`
-	NICs     []NICConfig  `json:"nics"`
+	Hostname string      `json:"hostname"`
+	NICs     []NICConfig `json:"nics"`
 }
 
 type NICConfig struct {
@@ -194,12 +194,12 @@ type MemoryResult struct {
 }
 
 type DiskResult struct {
-	Path      string  `json:"path"`
-	SizeMB    int     `json:"size_mb"`
-	WriteMBs  float64 `json:"write_mb_s"`
-	ReadMBs   float64 `json:"read_mb_s"`
-	VerifyOK  bool    `json:"verify_ok"`
-	Seconds   float64 `json:"seconds"`
+	Path     string  `json:"path"`
+	SizeMB   int     `json:"size_mb"`
+	WriteMBs float64 `json:"write_mb_s"`
+	ReadMBs  float64 `json:"read_mb_s"`
+	VerifyOK bool    `json:"verify_ok"`
+	Seconds  float64 `json:"seconds"`
 }
 
 type NetworkResult struct {
@@ -217,12 +217,14 @@ type Event struct {
 }
 
 type Overview struct {
-	Machines int            `json:"machines"`
-	Online   int            `json:"online"`
-	Images   int            `json:"images"`
-	Jobs     int            `json:"jobs"`
-	Running  int            `json:"running"`
-	ByStatus map[string]int `json:"by_status"`
+	Machines      int            `json:"machines"`
+	Online        int            `json:"online"`
+	Images        int            `json:"images"`
+	Jobs          int            `json:"jobs"`
+	Running       int            `json:"running"`
+	ByStatus      map[string]int `json:"by_status"`
+	DHCPRunning   bool           `json:"dhcp_running"`
+	DHCPInterface string         `json:"dhcp_interface"`
 }
 
 type PowerRequest struct {

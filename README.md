@@ -52,7 +52,7 @@ go build -o bin/rackauto ./cmd/rackauto
 
 把 next-server 指到控制面，BIOS `filename undionly.kpxe`，UEFI `filename ipxe.efi`。iPXE 随后请求 `/ipxe/boot.ipxe`。
 
-也可以在实验室打开配置里的内置 DHCP（需要网卡混杂/绑定 UDP 67）。
+也可以在 Web「网络引导」里启用内置 DHCP，并指定一块**接入网卡**（只在该网卡上提供 PXE 地址）。需要 root/管理员权限绑定 UDP 67。
 
 ### 装机流程
 
@@ -78,7 +78,8 @@ Agent 也可在任意 Linux 上手工运行（用于无 PXE 的调试）：
 | `public_url` | 服务器 PXE 后访问控制面的 URL |
 | `api_token` | 非空则 API 需要 `X-API-Token` |
 | `tftp_listen` | 默认 `:69` |
-| `dhcp.enabled` | 内置 DHCP，默认关闭 |
+| `dhcp.enabled` | 内置 DHCP，也可在 Web 管理 |
+| `dhcp.interface` | DHCP / PXE 接入网卡 |
 
 ## API 摘要
 
@@ -90,6 +91,9 @@ Agent 也可在任意 Linux 上手工运行（用于无 PXE 的调试）：
 | POST | `/api/v1/machines/{id}/boot` | PXE/磁盘/光盘，BIOS 或 UEFI |
 | POST | `/api/v1/jobs/install` | 装机任务 |
 | POST | `/api/v1/jobs/stress` | 压测任务 |
+| GET | `/api/v1/nics` | 控制面主机网卡 |
+| POST | `/api/v1/dhcp/apply` | 保存并应用 DHCP（含接入网卡） |
+| POST | `/api/v1/dhcp/stop` | 停止内置 DHCP |
 | GET | `/ipxe/boot.ipxe` | iPXE 入口 |
 
 ## 开发
