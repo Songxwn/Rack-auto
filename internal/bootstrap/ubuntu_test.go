@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,3 +55,38 @@ func TestUbuntuDebArch(t *testing.T) {
 		t.Fatalf("%s %v", a, err)
 	}
 }
+
+func TestKeepCasperLive(t *testing.T) {
+	if !keepCasperLive("casper/ubuntu-server-minimal.squashfs") {
+		t.Fatal("squashfs")
+	}
+	if keepCasperLive("casper/vmlinuz") || keepCasperLive("casper/initrd") {
+		t.Fatal("kernel files")
+	}
+	if !keepCasperLive(".disk/info") {
+		t.Fatal(".disk")
+	}
+}
+
+func TestWriteLayerFSPathPicksLongest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ubuntu-server-minimal.squashfs"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	long := "ubuntu-server-minimal.ubuntu-server.installer.generic.squashfs"
+	if err := os.WriteFile(filepath.Join(dir, long), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "layerfs-path")
+	if err := writeLayerFSPath(dir, dest); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(b)) != long {
+		t.Fatalf("got %q", b)
+	}
+}
+

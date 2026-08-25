@@ -18,11 +18,20 @@ func TestScriptContainsKernel(t *testing.T) {
 	if !strings.HasPrefix(out, "#!ipxe") {
 		t.Fatal(out)
 	}
-	if !strings.Contains(out, "ramos/ubuntu/x86_64/vmlinuz") || !strings.Contains(out, "live-server.iso") {
+	if !strings.Contains(out, "ramos/ubuntu/x86_64/vmlinuz") || !strings.Contains(out, "casper.iso") {
 		t.Fatalf("missing ubuntu ramos boot: %s", out)
 	}
-	if !strings.Contains(out, "nocloud-net") || !strings.Contains(out, "/ipxe/cidata/${mac}/") {
-		t.Fatalf("expected autoinstall seed: %s", out)
+	if !strings.Contains(out, "iso-url=") || !strings.Contains(out, "layerfs-path=") {
+		t.Fatalf("expected casper netboot: %s", out)
+	}
+	if !strings.Contains(out, "cloud-init=disabled") || !strings.Contains(out, "noprompt") {
+		t.Fatalf("expected casper flags: %s", out)
+	}
+	if !strings.Contains(out, "rackauto_url=") || !strings.Contains(out, "rackauto_mac=") {
+		t.Fatalf("expected agent cmdline: %s", out)
+	}
+	if strings.Contains(out, "live-server.iso") || strings.Contains(out, "nocloud-net") || strings.Contains(out, ";") {
+		t.Fatalf("old ISO/autoinstall cmdline: %s", out)
 	}
 	if strings.Contains(out, "vmlinuz-lts") || strings.Contains(out, "alpine") {
 		t.Fatalf("still alpine: %s", out)

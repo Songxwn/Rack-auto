@@ -48,13 +48,13 @@
 | 一块装机网卡 | 和控制面、待装机服务器在**同一二层网段**（同一交换机/VLAN）。 |
 | 待装机服务器 | 支持 PXE；有 BMC（IPMI/Redfish）会更省事，没有也可以人肉进 BIOS 选网卡启动。 |
 | 出网 | 第一次 `bootstrap` 要下载 Ubuntu 26.04 live-server ISO（约 **2.7GB**）。默认探测多家镜像并选延迟最低的；也可把 `ubuntu_mirror` 钉死。 |
-| 内存 | 待装机服务器建议 **≥ 8GB**：casper 会把整张 ISO 拉进内存。4GB 机器很容易在这里 OOM / panic。 |
-| 磁盘 | 控制面预留约 3GB 给 RAMOS ISO；另外再为 cloud 镜像留空间。 |
+| 内存 | 待装机服务器建议 **≥ 4GB**。PXE 客户端只把 `casper.iso`（squashfs 层，大约几百 MB～1.5GB）拉进内存，不再下 2.7GB 整包。2GB 的虚拟机仍可能 OOM。 |
+| 磁盘 | 控制面预留约 **5GB** 给 RAMOS（完整 ISO 缓存 + `casper.iso`）；另外再为 cloud 镜像留空间。 |
 | 管理员权限 | 绑定 DHCP/TFTP 特权端口需要 root（或等价能力）。 |
 
 **不需要**事先给每台机器装操作系统。有 BMC 的话，连显示器都可以不用。
 
-控制面磁盘建议预留：**RAMOS ISO 约 3GB**，再加上你要存的 cloud 镜像（每张大约 600MB～1GB）。
+控制面磁盘建议预留：**RAMOS 约 5GB**（`live-server.iso` + `casper.iso`），再加上你要存的 cloud 镜像（每张大约 600MB～1GB）。
 
 ---
 
@@ -181,7 +181,7 @@ ip -br a
 
 iPXE 固件已经打进控制面程序，**PXE 阶段不会访问 boot.ipxe.org**。`serve` 启动时也会自动把 `undionly.kpxe` / `ipxe.efi` 写到 `data/tftp/`。
 
-RAMOS 使用 **Ubuntu 26.04 LTS live-server**（当前最新稳定版 LTS）。第一次需要联网把 ISO 缓存到本机，并从中抽出 `casper/vmlinuz`、`casper/initrd`；之后整个装机网可以离线。
+RAMOS 使用 **Ubuntu 26.04 LTS live-server**（当前最新稳定版 LTS）。第一次需要联网把 ISO 缓存到本机，抽出 `casper/vmlinuz`、`casper/initrd`，再打一份只含 squashfs 层的 `casper.iso`；之后整个装机网可以离线。PXE 客户端只拉 `casper.iso`，不会把 2.7GB 整包灌进内存。
 
 `ubuntu_mirror` 留空（或写成 `auto`）时，bootstrap 会并行探测阿里云、清华、中科大、华为云等镜像以及官方源，选 **HTTP 延迟最低** 且能拿到 `SHA256SUMS` 的那一家。想钉死某源时再填完整 URL：
 
@@ -214,8 +214,8 @@ sudo /opt/rackauto/bin/rackauto bootstrap \
 它会做：
 
 1. 把内置 iPXE 写到 `data/tftp/`（BIOS：`undionly.kpxe`，UEFI：`ipxe.efi`）
-2. 下载 Ubuntu live-server ISO 到 `data/ramos/ubuntu/<arch>/live-server.iso`（约 2.7GB，可续传）
-3. 抽出 `vmlinuz` / `initrd` 到同一目录
+2. 下载 Ubuntu live-server ISO 到 `data/ramos/ubuntu/<arch>/live-server.iso`（约 2.7GB，可续传；这是控制面缓存，机器不拉这个文件）
+3. 抽出 `vmlinuz` / `initrd.stock`，打出 `casper.iso`，并把启动脚本接到 `initrd` 后面
 4. 若当前目录有源码，交叉编译 Linux Agent 到 `data/agent/`
 
 已经存在且完整的 ISO / 内核会跳过，可以重复执行。下载中断会留着 `.tmp`，下次自动续传。
@@ -414,7 +414,7 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 - [ ] `curl -sS http://<public_url>/api/v1/health` 返回正常（从**另一台机器**测，不要只在控制面本机测 `127.0.0.1`）
 - [ ] `ls data/tftp/` 里有 `undionly.kpxe` 和 `ipxe.efi`
-- [ ] `ls data/ramos/ubuntu/x86_64/` 里有 `vmlinuz`、`initrd`、`live-server.iso`（ISO 大约 2.7GB）
+- [ ] `ls data/ramos/ubuntu/x86_64/` 里有 `vmlinuz`、`initrd`、`casper.iso`、`layerfs-path`（`live-server.iso` 是控制面缓存，大约 2.7GB）
 - [ ] `ls data/agent/x86_64/rackauto-agent` 文件存在且可执行
 - [ ] 控制台左下角是 `CTRL // ONLINE`
 - [ ] DHCP：要么内置显示运行中，要么现有 dhcpd/dnsmasq 已改 next-server
@@ -459,7 +459,14 @@ API Token 填错，或页面不是从控制面自己的 HTTP 打开的（不要�
 启用时必须选网卡。67 被 dhcpd/dnsmasq 占用时先停掉旧服务，或改用「方案二」。Linux 请用 root。
 
 **PXE 进了内核随后 Kernel panic / Attempted to kill init**  
-旧版用 Alpine 当 RAMOS 时，init 很容易在拉 overlay 失败后直接退出（`exitcode=0x00000100`）。现在改成 Ubuntu live-server。若仍然 panic：ISO 没缓存完整、`public_url` 对 PXE 网不可达、或机器内存不够（请 ≥ 8GB）。串口/屏幕上应能看到 casper 在 HTTP 拉 `live-server.iso`。
+紫屏上的 `KERNEL PANIC! Attempted to kill init! exitcode=0x00000100` 是 casper 的 init 退出，不是硬件坏了。常见原因：
+
+1. **旧版把整张 2.7GB ISO 拉进内存。** 请换成 **v0.4.2+**，再跑一次 `bootstrap`（已有 `live-server.iso` 不会重下，会抽出 squashfs 打成 `casper.iso`），然后重启 PXE。
+2. **没重新 bootstrap。** 新控制面会请求 `/ramos/ubuntu/<arch>/casper.iso`，没有这个文件就会找不到 live 介质。
+3. **机器内存太小。** 建议 ≥ 4GB；2GB 虚拟机仍可能在 wget/`tmpfs` 时 OOM。
+4. **`public_url` 对 PXE 网不可达**，或 `casper.iso` 404。串口/屏幕上应能看到 casper 在 HTTP 拉 `casper.iso`。
+
+不要用带分号的 `ds=nocloud-net;s=...`：iPXE 会把 `;` 当成命令分隔符，内核命令行被截断。v0.4.2 改为 `iso-url=` + initrd 里的 casper-bottom 拉起 Agent。
 
 **进了 Ubuntu / RAMOS 但控制台没有机器**  
 Agent 连不上 `public_url`，或 Token 不一致。看 RAMOS 日志 `/var/log/rackauto.log`（installer 环境里）。

@@ -272,3 +272,77 @@ func copyISOExtent(f *os.File, lba, size uint32, dest string) error {
 	}
 	return os.Rename(tmp, dest)
 }
+
+type isoListed struct {
+	Path string
+	LBA  uint32
+	Size uint32
+	Dir  bool
+}
+
+func ListISOFiles(isoPath string) ([]isoListed, error) {
+	f, err := os.Open(isoPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	vols, err := readISOVolumes(f)
+	if err != nil {
+		return nil, err
+	}
+	if len(vols) == 0 {
+		return nil, fmt.Errorf("empty ISO")
+	}
+	var out []isoListed
+	if err := vols[0].walk(f, vols[0].rootLBA, vols[0].rootLen, "", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (v isoVol) walk(f *os.File, lba, size uint32, prefix string, out *[]isoListed) error {
+	ents, err := v.readDir(f, lba, size)
+	if err != nil {
+		return err
+	}
+	for _, e := range ents {
+		p := e.name
+		if prefix != "" {
+			p = prefix + "/" + e.name
+		}
+		*out = append(*out, isoListed{Path: p, LBA: e.lba, Size: e.size, Dir: e.dir})
+		if e.dir {
+			if err := v.walk(f, e.lba, e.size, p, out); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ExtractISOPrefix(isoPath, destDir string, keep func(path string) bool) error {
+	f, err := os.Open(isoPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	list, err := ListISOFiles(isoPath)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, e := range list {
+		if e.Dir || !keep(e.Path) {
+			continue
+		}
+		dst := filepath.Join(append([]string{destDir}, strings.Split(e.Path, "/")...)...)
+		if err := copyISOExtent(f, e.LBA, e.Size, dst); err != nil {
+			return fmt.Errorf("%s: %w", e.Path, err)
+		}
+		n++
+	}
+	if n == 0 {
+		return fmt.Errorf("ISO 中没有匹配的文件")
+	}
+	return nil
+}

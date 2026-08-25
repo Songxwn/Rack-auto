@@ -27,7 +27,7 @@ func installUbuntu(hc *http.Client, cfg config.Config, offline bool) error {
 	if len(arches) == 0 {
 		arches = []string{"x86_64"}
 	}
-	fmt.Printf("   Ubuntu %s live-server；ISO 约 2.7GB，待装机机器建议内存 ≥ 8GB\n", rel)
+	fmt.Printf("   Ubuntu %s live-server；控制面缓存 ISO，机器只拉 casper 层（不必把 2.7GB 整包进内存）\n", rel)
 	isoHC := &http.Client{Timeout: 2 * time.Hour}
 	for _, arch := range arches {
 		if err := installUbuntuArch(hc, isoHC, cfg, arch, rel, offline); err != nil {
@@ -48,13 +48,11 @@ func installUbuntuArch(metaHC, isoHC *http.Client, cfg config.Config, arch, rel 
 	}
 	isoPath := filepath.Join(dir, "live-server.iso")
 	vmlinuz := filepath.Join(dir, "vmlinuz")
+	stock := filepath.Join(dir, "initrd.stock")
 	initrd := filepath.Join(dir, "initrd")
-	if isoReady(isoPath) && kernelReady(vmlinuz, initrd) {
-		fmt.Println("   +", isoPath, "(cached)")
-		fmt.Println("   +", vmlinuz, "(cached)")
-		return nil
-	}
-
+	casperISO := filepath.Join(dir, "casper.iso")
+	stage := filepath.Join(dir, "stage")
+	layerFile := filepath.Join(dir, "layerfs-path")
 	srcISO := localUbuntuISO(cfg, arch)
 	if srcISO != "" {
 		if err := stageLocalISO(srcISO, isoPath); err != nil {
@@ -83,15 +81,39 @@ func installUbuntuArch(metaHC, isoHC *http.Client, cfg config.Config, arch, rel 
 		fmt.Println("   +", isoPath, "(cached)")
 	}
 
-	if kernelReady(vmlinuz, initrd) {
+	if kernelReady(vmlinuz, stock) {
 		fmt.Println("   +", vmlinuz, "(cached)")
-		return nil
+	} else {
+		fmt.Println("   从 ISO 抽出 casper/vmlinuz 与 casper/initrd")
+		if err := extractCasper(isoPath, vmlinuz, stock); err != nil {
+			return fmt.Errorf("抽出内核: %w", err)
+		}
+		fmt.Println("   +", vmlinuz)
+		fmt.Println("   +", stock)
 	}
-	fmt.Println("   从 ISO 抽出 casper/vmlinuz 与 casper/initrd")
-	if err := extractCasper(isoPath, vmlinuz, initrd); err != nil {
-		return fmt.Errorf("抽出内核: %w", err)
+
+	if casperISOReady(casperISO) && fileMin(layerFile, 8) {
+		fmt.Println("   +", casperISO, "(cached)")
+	} else {
+		fmt.Println("   从 ISO 抽出 casper squashfs 层（机器只拉这一层，不再把 2.7GB 整包进内存）")
+		_ = os.RemoveAll(stage)
+		if err := extractCasperLive(isoPath, stage); err != nil {
+			return fmt.Errorf("抽出 squashfs: %w", err)
+		}
+		if err := packCasperISO(stage, casperISO); err != nil {
+			return fmt.Errorf("打包 casper.iso: %w", err)
+		}
+		if err := writeLayerFSPath(filepath.Join(stage, "casper"), layerFile); err != nil {
+			return fmt.Errorf("写入 layerfs-path: %w", err)
+		}
+		_ = os.RemoveAll(stage)
+		fmt.Println("   +", casperISO)
 	}
-	fmt.Println("   +", vmlinuz)
+
+	fmt.Println("   写入 RAMOS 启动脚本到 initrd")
+	if err := appendInitrdOverlay(stock, initrd, casperBottomScript()); err != nil {
+		return fmt.Errorf("制作 initrd: %w", err)
+	}
 	fmt.Println("   +", initrd)
 	return nil
 }
@@ -125,6 +147,117 @@ func kernelReady(vmlinuz, initrd string) bool {
 	v, err1 := os.Stat(vmlinuz)
 	i, err2 := os.Stat(initrd)
 	return err1 == nil && err2 == nil && v.Size() > 2<<20 && i.Size() > 8<<20
+}
+
+func casperISOReady(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.Size() > 50<<20
+}
+
+func keepCasperLive(path string) bool {
+	p := strings.ToLower(path)
+	if strings.HasPrefix(p, "casper/") && strings.HasSuffix(p, ".squashfs") {
+		return true
+	}
+	return strings.HasPrefix(p, ".disk/")
+}
+
+func extractCasperLive(iso, dest string) error {
+	if err := ExtractISOPrefix(iso, dest, keepCasperLive); err == nil {
+		return requireSquashfs(dest)
+	} else {
+		fmt.Printf("   ! Go ISO 抽出 squashfs: %v\n", err)
+	}
+	_ = os.RemoveAll(dest)
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	if err := extractCasperLiveExternal(iso, dest); err != nil {
+		return err
+	}
+	if err := pruneStage(dest); err != nil {
+		return err
+	}
+	return requireSquashfs(dest)
+}
+
+func requireSquashfs(dest string) error {
+	matches, err := filepath.Glob(filepath.Join(dest, "casper", "*.squashfs"))
+	if err != nil {
+		return err
+	}
+	if len(matches) == 0 {
+		return fmt.Errorf("抽出后没有 casper/*.squashfs")
+	}
+	return nil
+}
+
+func pruneStage(root string) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if !keepCasperLive(filepath.ToSlash(rel)) {
+			return os.Remove(path)
+		}
+		return nil
+	})
+}
+
+func extractCasperLiveExternal(iso, dest string) error {
+	type tool struct {
+		name string
+		args []string
+	}
+	tools := []tool{
+		{"7z", []string{"x", "-y", "-o" + dest, iso, "casper", ".disk"}},
+		{"7za", []string{"x", "-y", "-o" + dest, iso, "casper", ".disk"}},
+		{"7zz", []string{"x", "-y", "-o" + dest, iso, "casper", ".disk"}},
+		{"bsdtar", []string{"-xf", iso, "-C", dest, "casper", ".disk"}},
+	}
+	var last error
+	for _, t := range tools {
+		if _, err := exec.LookPath(t.name); err != nil {
+			continue
+		}
+		cmd := exec.Command(t.name, t.args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			last = err
+			continue
+		}
+		return nil
+	}
+	if last != nil {
+		return last
+	}
+	return fmt.Errorf("没有 7z/bsdtar，且内置 ISO 解析失败")
+}
+
+func writeLayerFSPath(casperDir, dest string) error {
+	matches, err := filepath.Glob(filepath.Join(casperDir, "*.squashfs"))
+	if err != nil {
+		return err
+	}
+	best := ""
+	for _, m := range matches {
+		b := filepath.Base(m)
+		if len(b) > len(best) {
+			best = b
+		}
+	}
+	if best == "" {
+		return fmt.Errorf("没有 squashfs")
+	}
+	return os.WriteFile(dest, []byte(best+"\n"), 0o644)
 }
 
 func stageLocalISO(src, dest string) error {

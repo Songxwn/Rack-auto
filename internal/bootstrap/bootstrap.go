@@ -24,7 +24,7 @@ func Run(cfg config.Config, agentSrc string, offline bool) error {
 		return err
 	}
 
-	fmt.Println(">> Ubuntu RAMOS（live-server ISO + casper 内核）")
+	fmt.Println(">> Ubuntu RAMOS（缓存 live-server ISO，机器只拉 casper.iso）")
 	if err := installUbuntu(hc, cfg, offline); err != nil {
 		return err
 	}

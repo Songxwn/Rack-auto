@@ -63,7 +63,7 @@ cp configs/rackauto.example.yaml configs/rackauto.yaml
 
 ### 3. 准备引导文件
 
-iPXE 已内置。Ubuntu 26.04 live-server ISO 第一次需要联网缓存（约 2.7GB，不必装 Go）：
+iPXE 已内置。Ubuntu 26.04 live-server ISO 第一次需要联网缓存（约 2.7GB，不必装 Go）。bootstrap 会再打一份只含 squashfs 的 `casper.iso`，PXE 机器只拉这一份：
 
 ```bash
 ./bin/rackauto bootstrap -config configs/rackauto.yaml

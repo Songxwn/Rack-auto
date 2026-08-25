@@ -219,14 +219,35 @@ sanboot --no-describe --drive 0x80 || exit
 	if rel == "" {
 		rel = "26.04"
 	}
+	token := s.Cfg.APIToken
+	if s.Store != nil && s.Store.S != nil {
+		token = s.Store.S.Setting("api_token", token)
+	}
+	layer := s.layerFSPath(archDir)
 	return fmt.Sprintf(`#!ipxe
 echo Rack-auto RAMOS (Ubuntu %s / %s / %s)
 set base %s
-echo fetching kernel from this control plane (ISO follows in casper, ~2.7GB — need 8GB+ RAM)
-kernel ${base}/ramos/ubuntu/%s/vmlinuz initrd=initrd ip=dhcp url=${base}/ramos/ubuntu/%s/live-server.iso autoinstall cloud-config-url=/dev/null ignore_uuid noprompt "ds=nocloud-net;s=${base}/ipxe/cidata/${mac}/" console=tty0 console=ttyS0,115200 ---
+echo casper.iso is squashfs layers only - not the 2.7G live-server ISO
+kernel ${base}/ramos/ubuntu/%s/vmlinuz initrd=initrd boot=casper ip=dhcp iso-url=${base}/ramos/ubuntu/%s/casper.iso ignore_uuid noprompt cloud-init=disabled layerfs-path=%s root=/dev/ram0 console=tty0 console=ttyS0,115200 --- rackauto_url=${base} rackauto_token=%s rackauto_mac=${mac}
 initrd ${base}/ramos/ubuntu/%s/initrd
 boot
-`, rel, firmware, archDir, base, archDir, archDir, archDir)
+`, rel, firmware, archDir, base, archDir, archDir, layer, token, archDir)
+}
+
+func (s *Service) layerFSPath(archDir string) string {
+	const fallback = "ubuntu-server-minimal.ubuntu-server.installer.generic.squashfs"
+	if s.Cfg.DataDir == "" {
+		return fallback
+	}
+	b, err := os.ReadFile(filepath.Join(s.Cfg.RAMOSDir(), "ubuntu", archDir, "layerfs-path"))
+	if err != nil {
+		return fallback
+	}
+	p := strings.TrimSpace(string(b))
+	if p == "" {
+		return fallback
+	}
+	return p
 }
 
 func platformToFirmware(p string) string {
