@@ -61,3 +61,61 @@ func TestImageInspectRoundtrip(t *testing.T) {
 		t.Fatalf("list: %v %#v", err, list)
 	}
 }
+
+func TestCredentialTemplateRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	acct := model.CredentialTemplate{
+		Kind:     model.TemplateAccount,
+		Name:     "机房 root",
+		Username: "root",
+		Password: "secret",
+		SSHKeys:  []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIacct"},
+		Notes:    "ops",
+	}
+	if err := st.UpsertCredTemplate(&acct); err != nil {
+		t.Fatal(err)
+	}
+	if acct.ID == "" {
+		t.Fatal("missing id")
+	}
+	got, err := st.GetCredTemplate(acct.ID)
+	if err != nil || got.Name != "机房 root" || got.Username != "root" || got.Password != "secret" || len(got.SSHKeys) != 1 || got.Notes != "ops" {
+		t.Fatalf("get account: %v %#v", err, got)
+	}
+	key := model.CredentialTemplate{
+		Kind:    model.TemplateKey,
+		Name:    "运维公钥",
+		SSHKeys: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIkey1", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQkey2"},
+	}
+	if err := st.UpsertCredTemplate(&key); err != nil {
+		t.Fatal(err)
+	}
+	list, err := st.ListCredTemplates()
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list: %v %#v", err, list)
+	}
+	got.Name = "机房 root v2"
+	got.Password = "newpass"
+	if err := st.UpsertCredTemplate(&got); err != nil {
+		t.Fatal(err)
+	}
+	again, err := st.GetCredTemplate(acct.ID)
+	if err != nil || again.Name != "机房 root v2" || again.Password != "newpass" || again.Username != "root" {
+		t.Fatalf("update: %v %#v", err, again)
+	}
+	if err := st.DeleteCredTemplate(key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetCredTemplate(key.ID); err == nil {
+		t.Fatal("expected missing key template")
+	}
+	left, err := st.ListCredTemplates()
+	if err != nil || len(left) != 1 || left[0].ID != acct.ID {
+		t.Fatalf("after delete: %v %#v", err, left)
+	}
+}

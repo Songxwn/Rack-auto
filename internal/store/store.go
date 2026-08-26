@@ -103,8 +103,20 @@ CREATE TABLE IF NOT EXISTS settings (
   k TEXT PRIMARY KEY,
   v TEXT
 );
+CREATE TABLE IF NOT EXISTS cred_templates (
+  id TEXT PRIMARY KEY,
+  kind TEXT,
+  name TEXT,
+  username TEXT,
+  password TEXT,
+  ssh_keys TEXT,
+  notes TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_jobs_machine ON jobs(machine_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+CREATE INDEX IF NOT EXISTS idx_cred_templates_kind ON cred_templates(kind, updated_at);
 `)
 	if err != nil {
 		return err
@@ -391,6 +403,86 @@ func (s *Store) DeleteImage(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec(`DELETE FROM images WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) UpsertCredTemplate(t *model.CredentialTemplate) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t.ID == "" {
+		t.ID = NewID("tpl")
+	}
+	n := now()
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = n
+	}
+	t.UpdatedAt = n
+	if t.SSHKeys == nil {
+		t.SSHKeys = []string{}
+	}
+	keys, err := json.Marshal(t.SSHKeys)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO cred_templates(id,kind,name,username,password,ssh_keys,notes,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, name=excluded.name, username=excluded.username,
+		password=excluded.password, ssh_keys=excluded.ssh_keys, notes=excluded.notes, updated_at=excluded.updated_at`,
+		t.ID, t.Kind, t.Name, t.Username, t.Password, string(keys), t.Notes, fmtTime(t.CreatedAt), fmtTime(t.UpdatedAt))
+	return err
+}
+
+func scanCredTemplate(sc interface{ Scan(dest ...any) error }) (model.CredentialTemplate, error) {
+	var t model.CredentialTemplate
+	var created, updated, keys string
+	err := sc.Scan(&t.ID, &t.Kind, &t.Name, &t.Username, &t.Password, &keys, &t.Notes, &created, &updated)
+	t.CreatedAt = parseTime(created)
+	t.UpdatedAt = parseTime(updated)
+	t.SSHKeys = []string{}
+	if keys != "" && keys != "null" {
+		var list []string
+		if json.Unmarshal([]byte(keys), &list) == nil && list != nil {
+			t.SSHKeys = list
+		}
+	}
+	return t, err
+}
+
+func (s *Store) ListCredTemplates() ([]model.CredentialTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.Query(`SELECT id,kind,name,username,password,ssh_keys,notes,created_at,updated_at
+		FROM cred_templates ORDER BY updated_at DESC, created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.CredentialTemplate{}
+	for rows.Next() {
+		t, err := scanCredTemplate(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetCredTemplate(id string) (model.CredentialTemplate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row := s.db.QueryRow(`SELECT id,kind,name,username,password,ssh_keys,notes,created_at,updated_at FROM cred_templates WHERE id=?`, id)
+	t, err := scanCredTemplate(row)
+	if err == sql.ErrNoRows {
+		return t, fmt.Errorf("template not found")
+	}
+	return t, err
+}
+
+func (s *Store) DeleteCredTemplate(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM cred_templates WHERE id=?`, id)
 	return err
 }
 

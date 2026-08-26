@@ -1,18 +1,19 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const view = $("#view");
-const titles = { dash: "总览", machines: "机器", images: "镜像", install: "装机向导", stress: "硬件压测", jobs: "任务", boot: "网络引导" };
+const titles = { dash: "总览", machines: "机器", images: "镜像", templates: "账号与密钥", install: "装机向导", stress: "硬件压测", jobs: "任务", boot: "网络引导" };
 const kickers = {
   dash: "CONTROL / OVERVIEW",
   machines: "INVENTORY / NODES",
   images: "STORAGE / IMAGES",
+  templates: "CREDS / TEMPLATES",
   install: "PROVISION / WIZARD",
   stress: "DIAG / STRESS",
   jobs: "PIPELINE / JOBS",
   boot: "NETBOOT / DHCP",
 };
 let current = "dash";
-let cache = { machines: [], images: [], jobs: [], events: [], overview: {}, catalog: [] };
+let cache = { machines: [], images: [], jobs: [], events: [], overview: {}, catalog: [], templates: [] };
 
 function token() { return $("#token").value.trim() || localStorage.getItem("rackauto_token") || ""; }
 $("#token").value = localStorage.getItem("rackauto_token") || "";
@@ -70,12 +71,13 @@ $("#refresh").addEventListener("click", () => load().then(render));
 
 async function load() {
   try {
-    const [overview, machines, images, jobs, events, health, catalog] = await Promise.all([
+    const [overview, machines, images, jobs, events, health, catalog, templates] = await Promise.all([
       api("/overview"), api("/machines"), api("/images"), api("/jobs"), api("/events"),
       fetch("/api/v1/health").then(r => r.json()).catch(() => ({ ok: false })),
       api("/os-catalog").catch(() => OS_CATALOG),
+      api("/templates").catch(() => []),
     ]);
-    cache = { overview, machines, images, jobs, events, catalog: catalog || OS_CATALOG };
+    cache = { overview, machines, images, jobs, events, catalog: catalog || OS_CATALOG, templates: templates || [] };
     setHealth(health.ok, health.ok ? "CTRL // ONLINE" : "CTRL // OFFLINE");
     if (health.version) setVersion(health.version);
   } catch (e) {
@@ -112,7 +114,7 @@ async function removeMachine(id, label) {
 
 function render() {
   view.onclick = null;
-  const fn = { dash: renderDash, machines: renderMachines, images: renderImages, install: renderInstall, stress: renderStress, jobs: renderJobs, boot: renderBoot }[current];
+  const fn = { dash: renderDash, machines: renderMachines, images: renderImages, templates: renderTemplates, install: renderInstall, stress: renderStress, jobs: renderJobs, boot: renderBoot }[current];
   view.classList.remove("in");
   fn();
   void view.offsetWidth;
@@ -664,6 +666,205 @@ function blankInstallDraft() {
     step: 1, machine_id: "", image_id: "", hostname: "", username: "root",
     password: "", timezone: "Asia/Shanghai", firmware: "uefi", disk: "", reboot: true,
     ssh_keys: [""], partitions: defaultParts("uefi", "ubuntu", "24.04"), nics: [blankNic()],
+    account_tpl: "", key_tpl: "",
+  };
+}
+
+function credTemplates(kind) {
+  return (cache.templates || []).filter(t => !kind || t.kind === kind);
+}
+
+function keyPreview(keys) {
+  const k = (keys || []).map(s => String(s).trim()).filter(Boolean);
+  if (!k.length) return "—";
+  const parts = k[0].split(/\s+/);
+  const first = parts.slice(0, 2).join(" ");
+  const short = first.length > 42 ? first.slice(0, 42) + "…" : first;
+  return k.length > 1 ? short + " · +" + (k.length - 1) : short;
+}
+
+function tplChipHTML(list, selectedId) {
+  if (!list.length) return `<span class="hint">还没有模板</span>`;
+  return list.map(t => `<button type="button" class="tpl-chip ${t.id === selectedId ? "on" : ""}" data-tpl="${escapeHtml(t.id)}">${escapeHtml(t.name || t.id)}</button>`).join("");
+}
+
+function ensureInstallDraft() {
+  if (installDraft) return;
+  installDraft = blankInstallDraft();
+  const machines = cache.machines || [];
+  const images = cache.images || [];
+  if (machines[0]) installDraft.machine_id = machines[0].id;
+  if (images[0]) {
+    installDraft.image_id = images[0].id;
+    const v = osVersion(images[0].os_family, images[0].os_version);
+    if (v && v.default_user) installDraft.username = v.default_user;
+    installDraft.partitions = defaultParts(installDraft.firmware, images[0].os_family, images[0].os_version);
+  }
+  applyMachineDefaults();
+}
+
+function applyCredTemplate(t) {
+  if (!t) return;
+  ensureInstallDraft();
+  if (t.kind === "account") {
+    if (t.username) installDraft.username = t.username;
+    installDraft.password = t.password || "";
+    installDraft.account_tpl = t.id;
+    const keys = (t.ssh_keys || []).map(s => String(s).trim()).filter(Boolean);
+    if (keys.length) {
+      installDraft.ssh_keys = keys;
+      installDraft.key_tpl = t.id;
+    }
+    return;
+  }
+  const keys = (t.ssh_keys || []).map(s => String(s).trim()).filter(Boolean);
+  installDraft.ssh_keys = keys.length ? keys : [""];
+  installDraft.key_tpl = t.id;
+}
+
+function quoteTemplate(t) {
+  applyCredTemplate(t);
+  if (installDraft.machine_id && installDraft.image_id) installDraft.step = 2;
+  if (current !== "install") navTo("install");
+  else renderInstall();
+}
+
+function splitKeyLines(text) {
+  return String(text || "").split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith("#"));
+}
+
+function templateForm(t = {}, kind) {
+  const k = t.kind || kind || "account";
+  const keys = (t.ssh_keys && t.ssh_keys.length) ? t.ssh_keys.join("\n") : "";
+  openModal(`
+    <h3>${t.id ? "编辑模板" : (k === "key" ? "新建密钥模板" : "新建账号模板")}</h3>
+    <label>名称</label><input id="tf-name" value="${escapeHtml(t.name || "")}" placeholder="${k === "key" ? "例如 运维公钥" : "例如 机房 root"}">
+    ${k === "account" ? `
+      <div class="row">
+        <div><label>用户名</label><input id="tf-user" value="${escapeHtml(t.username || "root")}"></div>
+        <div><label>密码</label><input id="tf-pass" type="password" placeholder="${t.id ? "留空则不修改" : ""}"></div>
+      </div>
+    ` : ""}
+    <label>SSH 公钥（每行一把）</label>
+    <textarea id="tf-keys" placeholder="ssh-ed25519 AAAA...">${escapeHtml(keys)}</textarea>
+    <label>备注</label><input id="tf-notes" value="${escapeHtml(t.notes || "")}" placeholder="可选">
+    <div class="actions" style="margin-top:14px">
+      <button class="primary" id="tf-save">保存</button>
+      <button class="ghost" id="tf-close">取消</button>
+    </div>`);
+  $("#tf-close").onclick = closeModal;
+  $("#tf-save").onclick = async () => {
+    const name = $("#tf-name").value.trim();
+    if (!name) return alert("请填写名称");
+    const sshKeys = splitKeyLines($("#tf-keys").value);
+    const body = { kind: k, name, notes: $("#tf-notes").value.trim(), ssh_keys: sshKeys };
+    if (k === "account") {
+      body.username = $("#tf-user").value.trim();
+      body.password = $("#tf-pass").value;
+      if (!body.username) return alert("请填写用户名");
+    } else if (!sshKeys.length) {
+      return alert("请填写至少一把公钥");
+    }
+    try {
+      if (t.id) await api("/templates/" + t.id, { method: "PUT", body: JSON.stringify({ ...t, ...body }) });
+      else await api("/templates", { method: "POST", body: JSON.stringify(body) });
+      closeModal();
+      await load();
+      render();
+    } catch (e) { alert(e.message); }
+  };
+}
+
+function promptTemplateSave(kind) {
+  collectInstallForm();
+  const d = installDraft || {};
+  const keys = (d.ssh_keys || []).map(s => String(s).trim()).filter(Boolean);
+  if (kind === "key" && !keys.length) return alert("请先填写公钥");
+  if (kind === "account" && !(d.username || "").trim()) return alert("请先填写用户名");
+  openModal(`
+    <h3>${kind === "account" ? "保存账号模板" : "保存密钥模板"}</h3>
+    <label>名称</label><input id="tpl-name" placeholder="${kind === "account" ? "例如 机房 root" : "例如 运维公钥"}">
+    <label>备注</label><input id="tpl-notes" placeholder="可选">
+    ${kind === "account" ? `<label class="chk"><input type="checkbox" id="tpl-with-keys" ${keys.length ? "checked" : ""}> 同时保存当前公钥</label>` : ""}
+    <div class="actions" style="margin-top:14px">
+      <button class="primary" id="tpl-ok">保存</button>
+      <button class="ghost" id="tpl-no">取消</button>
+    </div>`);
+  $("#tpl-no").onclick = closeModal;
+  $("#tpl-ok").onclick = async () => {
+    const name = $("#tpl-name").value.trim();
+    if (!name) return alert("请填写名称");
+    const body = { kind, name, notes: $("#tpl-notes").value.trim() };
+    if (kind === "account") {
+      body.username = d.username;
+      body.password = d.password;
+      if ($("#tpl-with-keys") && $("#tpl-with-keys").checked) body.ssh_keys = keys;
+    } else {
+      body.ssh_keys = keys;
+    }
+    try {
+      const saved = await api("/templates", { method: "POST", body: JSON.stringify(body) });
+      if (saved && saved.id) {
+        if (kind === "account") installDraft.account_tpl = saved.id;
+        else installDraft.key_tpl = saved.id;
+      }
+      closeModal();
+      await load();
+      renderInstall();
+    } catch (e) { alert(e.message); }
+  };
+}
+
+function renderTemplates() {
+  const list = cache.templates || [];
+  view.innerHTML = `
+    <div class="actions" style="margin-bottom:12px">
+      <button class="primary" id="tpl-add-acct">新建账号模板</button>
+      <button id="tpl-add-key">新建密钥模板</button>
+    </div>
+    <p class="hint" style="margin:0 0 12px">账号模板保存用户名和密码（公钥可选）；密钥模板只保存公钥。装机向导第 2 步可一键引用。</p>
+    <div class="panel">
+      <table>
+        <thead><tr><th>名称</th><th>类型</th><th>用户</th><th>密钥</th><th>备注</th><th></th></tr></thead>
+        <tbody>${list.length ? list.map(t => `
+          <tr>
+            <td>${escapeHtml(t.name)}<div class="hint mono">${escapeHtml(t.id)}</div></td>
+            <td>${t.kind === "key" ? `<span class="badge">密钥</span>` : `<span class="badge ok">账号</span>`}</td>
+            <td class="mono">${t.kind === "account" ? escapeHtml(t.username || "—") : "—"}</td>
+            <td class="mono hint">${escapeHtml(keyPreview(t.ssh_keys))}</td>
+            <td class="hint">${escapeHtml(t.notes || "")}</td>
+            <td class="actions">
+              <button class="primary" data-act="quote" data-id="${t.id}">引用到装机</button>
+              <button data-act="edit" data-id="${t.id}">编辑</button>
+              <button class="danger" data-act="delete" data-id="${t.id}" data-name="${escapeHtml(t.name || t.id)}">删除</button>
+            </td>
+          </tr>`).join("") : `<tr><td colspan="6" class="empty">NO TEMPLATES · 先建账号或密钥模板</td></tr>`}
+        </tbody>
+      </table>
+    </div>`;
+  $("#tpl-add-acct").onclick = () => templateForm({}, "account");
+  $("#tpl-add-key").onclick = () => templateForm({}, "key");
+  view.onclick = async (ev) => {
+    const b = ev.target.closest("button[data-act]");
+    if (!b) return;
+    const t = list.find(x => x.id === b.dataset.id);
+    try {
+      if (b.dataset.act === "quote") {
+        if (!t) return;
+        quoteTemplate(t);
+        return;
+      }
+      if (b.dataset.act === "edit") {
+        if (t) templateForm(t, t.kind);
+        return;
+      }
+      if (b.dataset.act === "delete") {
+        if (!confirm("删除模板「" + (b.dataset.name || b.dataset.id) + "」？")) return;
+        await api("/templates/" + b.dataset.id, { method: "DELETE" });
+        await load();
+        render();
+      }
+    } catch (e) { alert(e.message); }
   };
 }
 
@@ -1001,6 +1202,14 @@ function renderInstall() {
       </div>
       <label class="chk"><input type="checkbox" id="in-reboot" ${d.reboot ? "checked" : ""}> 装完重启并切到本地磁盘引导</label>
     ` : step === 2 ? `
+      <div class="tpl-block">
+        <label>账号模板</label>
+        <div class="tpl-row">
+          ${tplChipHTML(credTemplates("account"), d.account_tpl)}
+          <button type="button" class="ghost" id="in-save-acct">保存当前为账号模板</button>
+          <button type="button" class="ghost" id="in-manage-tpl">管理模板</button>
+        </div>
+      </div>
       <div class="row">
         <div><label>登录用户</label>
           <select id="in-user">
@@ -1010,6 +1219,13 @@ function renderInstall() {
           <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="用户名" style="margin-top:8px">
         </div>
         <div><label>登录密码</label><input id="in-pass" type="password" value="${escapeHtml(d.password)}" placeholder="建议同时配置公钥"></div>
+      </div>
+      <div class="tpl-block">
+        <label>密钥模板</label>
+        <div class="tpl-row">
+          ${tplChipHTML(credTemplates("key"), d.key_tpl)}
+          <button type="button" class="ghost" id="in-save-key">保存当前公钥为模板</button>
+        </div>
       </div>
       <label>SSH 公钥</label>
       <div id="in-keys-box" class="editor-list">
@@ -1024,7 +1240,7 @@ function renderInstall() {
         <button type="button" id="in-import-key">导入 .pub 文件</button>
         <input type="file" id="in-key-file" class="hidden" accept=".pub,text/plain">
       </div>
-      <p class="hint">可添加多把钥匙，或导入 id_ed25519.pub。密码可作兜底。</p>
+      <p class="hint">点模板即可填入。账号模板会写入用户名和密码；若模板带公钥也会一并填入。密钥模板会替换下方公钥列表。</p>
     ` : `
       <div><label>目标磁盘</label>
         <select id="in-disk">
@@ -1114,6 +1330,21 @@ function renderInstall() {
     if (user.value === "__custom") custom.classList.remove("hidden");
     else { custom.classList.add("hidden"); installDraft.username = user.value; }
   };
+  view.querySelectorAll("button[data-tpl]").forEach(btn => {
+    btn.onclick = () => {
+      const t = (cache.templates || []).find(x => x.id === btn.dataset.tpl);
+      if (!t) return;
+      collectInstallForm();
+      applyCredTemplate(t);
+      renderInstall();
+    };
+  });
+  const saveAcct = $("#in-save-acct");
+  if (saveAcct) saveAcct.onclick = () => promptTemplateSave("account");
+  const saveKey = $("#in-save-key");
+  if (saveKey) saveKey.onclick = () => promptTemplateSave("key");
+  const manageTpl = $("#in-manage-tpl");
+  if (manageTpl) manageTpl.onclick = () => { collectInstallForm(); navTo("templates"); };
   const addKey = $("#in-add-key");
   if (addKey) addKey.onclick = () => { collectInstallForm(); installDraft.ssh_keys.push(""); renderInstall(); };
   const importKey = $("#in-import-key");

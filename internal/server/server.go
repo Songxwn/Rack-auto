@@ -67,6 +67,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/images/{id}", s.auth(s.deleteImage))
 	mux.Handle("/images/", http.StripPrefix("/images/", http.FileServer(http.Dir(s.Cfg.ImagesDir()))))
 
+	mux.HandleFunc("GET /api/v1/templates", s.auth(s.listTemplates))
+	mux.HandleFunc("POST /api/v1/templates", s.auth(s.createTemplate))
+	mux.HandleFunc("GET /api/v1/templates/{id}", s.auth(s.getTemplate))
+	mux.HandleFunc("PUT /api/v1/templates/{id}", s.auth(s.updateTemplate))
+	mux.HandleFunc("DELETE /api/v1/templates/{id}", s.auth(s.deleteTemplate))
+
 	mux.HandleFunc("GET /api/v1/jobs", s.auth(s.listJobs))
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.auth(s.getJob))
 	mux.HandleFunc("POST /api/v1/jobs/install", s.auth(s.createInstall))
@@ -699,6 +705,138 @@ func (s *Server) deleteImage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	w.WriteHeader(204)
+}
+
+func cleanSSHKeys(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		if k == "" || strings.HasPrefix(k, "#") {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
+}
+
+func normalizeTemplate(t *model.CredentialTemplate) error {
+	t.Name = strings.TrimSpace(t.Name)
+	t.Username = strings.TrimSpace(t.Username)
+	t.Notes = strings.TrimSpace(t.Notes)
+	t.Kind = strings.ToLower(strings.TrimSpace(t.Kind))
+	t.SSHKeys = cleanSSHKeys(t.SSHKeys)
+	if t.Name == "" {
+		return fmt.Errorf("name required")
+	}
+	switch t.Kind {
+	case model.TemplateAccount:
+		if t.Username == "" {
+			return fmt.Errorf("username required")
+		}
+	case model.TemplateKey:
+		if len(t.SSHKeys) == 0 {
+			return fmt.Errorf("ssh_keys required")
+		}
+		t.Username = ""
+		t.Password = ""
+	default:
+		return fmt.Errorf("kind must be account or key")
+	}
+	return nil
+}
+
+func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
+	list, err := s.Store.ListCredTemplates()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	kind := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("kind")))
+	out := make([]model.CredentialTemplate, 0, len(list))
+	for _, t := range list {
+		if kind != "" && t.Kind != kind {
+			continue
+		}
+		out = append(out, t)
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
+	var t model.CredentialTemplate
+	if err := readJSON(r, &t); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	t.ID = ""
+	if err := normalizeTemplate(&t); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if err := s.Store.UpsertCredTemplate(&t); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.Store.AddEvent("info", "保存模板 "+t.Name, "")
+	writeJSON(w, 201, t)
+}
+
+func (s *Server) getTemplate(w http.ResponseWriter, r *http.Request) {
+	t, err := s.Store.GetCredTemplate(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	writeJSON(w, 200, t)
+}
+
+func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
+	cur, err := s.Store.GetCredTemplate(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	var in model.CredentialTemplate
+	if err := readJSON(r, &in); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	in.ID = cur.ID
+	in.CreatedAt = cur.CreatedAt
+	if in.Kind == "" {
+		in.Kind = cur.Kind
+	}
+	if in.Password == "" {
+		in.Password = cur.Password
+	}
+	if err := normalizeTemplate(&in); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if err := s.Store.UpsertCredTemplate(&in); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, 200, in)
+}
+
+func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	t, err := s.Store.GetCredTemplate(id)
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	if err := s.Store.DeleteCredTemplate(id); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	name := t.Name
+	if name == "" {
+		name = id
+	}
+	s.Store.AddEvent("info", "删除模板 "+name, "")
 	w.WriteHeader(204)
 }
 

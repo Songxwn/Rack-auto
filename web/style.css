@@ -456,6 +456,29 @@ pre.log {
   color: var(--amber);
   box-shadow: 0 0 10px rgba(226, 177, 90, 0.2);
 }
+.tpl-block { margin: 4px 0 12px; }
+.tpl-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.tpl-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--cyan);
+  font-size: 12px;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.tpl-chip:hover { border-color: var(--cyan); }
+.tpl-chip.on {
+  border-color: var(--amber);
+  color: var(--amber);
+  box-shadow: 0 0 10px rgba(226, 177, 90, 0.2);
+}
 .editor-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin: 16px 0 8px;

@@ -9,7 +9,7 @@
 
 ![Rack-auto 控制台总览](docs/images/console-overview.png)
 
-控制台是深色机房 HUD：左侧 01–07 导航，总览上能看到节点、在线 Agent、镜像、进行中的任务，以及 DHCP 与上报事件。
+控制台是深色机房 HUD：左侧 01–08 导航，总览上能看到节点、在线 Agent、镜像、进行中的任务，以及 DHCP 与上报事件。账号和 SSH 公钥可存成模板，装机时一键引用。
 
 **详细逐步教程（网络怎么接、DHCP、第一次装机、排错）请看 [docs/deploy.md](docs/deploy.md)。** 下面是最短路径，方便你先把控制台跑起来。
 
@@ -150,6 +150,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | POST | `/api/v1/machines/{id}/boot` | PXE/磁盘/光盘，BIOS 或 UEFI |
 | POST | `/api/v1/machines/{id}/detect` | 检测品牌/型号/序列号（Redfish 或已上报的 DMI） |
 | GET | `/api/v1/os-catalog` | 镜像系统/版本（网卡与分区后端） |
+| CRUD | `/api/v1/templates` | 账号 / SSH 密钥模板（装机一键引用） |
 | POST | `/api/v1/images/{id}/inspect` | 检测已上传镜像的分区表和引导 |
 | POST | `/api/v1/jobs/install` | 装机任务 |
 | POST | `/api/v1/jobs/stress` | 压测任务 |

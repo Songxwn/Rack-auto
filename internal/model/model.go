@@ -41,6 +41,9 @@ const (
 	NICEthernet = "ethernet"
 	NICBond     = "bond"
 	NICVLAN     = "vlan"
+
+	TemplateAccount = "account"
+	TemplateKey     = "key"
 )
 
 type Machine struct {
@@ -352,6 +355,18 @@ type Event struct {
 	Message   string    `json:"message"`
 	MachineID string    `json:"machine_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type CredentialTemplate struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	Name      string    `json:"name"`
+	Username  string    `json:"username,omitempty"`
+	Password  string    `json:"password,omitempty"`
+	SSHKeys   []string  `json:"ssh_keys,omitempty"`
+	Notes     string    `json:"notes,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Overview struct {
