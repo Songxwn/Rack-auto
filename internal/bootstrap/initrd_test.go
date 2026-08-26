@@ -26,11 +26,8 @@ func TestMakeInitrdOverlayContainsCasperBottom(t *testing.T) {
 	if !bytes.Contains(body, []byte("scripts/casper-bottom/99rackauto")) {
 		t.Fatal("missing casper-bottom path")
 	}
-	if !bytes.Contains(body, []byte("autoinstall.yaml")) {
-		t.Fatal("missing autoinstall.yaml write")
-	}
-	if !bytes.Contains(body, []byte("rackauto_url=")) || !bytes.Contains(body, []byte("rackauto-agent")) {
-		t.Fatal("missing agent boot script")
+	if !bytes.Contains(body, []byte("ramos-start.sh")) {
+		t.Fatal("missing ramos-start fetch")
 	}
 	if !bytes.Contains(body, []byte("TRAILER!!!")) {
 		t.Fatal("missing cpio trailer")

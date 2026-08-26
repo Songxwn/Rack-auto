@@ -310,39 +310,51 @@ func (s *Service) RamosStart(mac string) []byte {
 		token = s.Store.S.Setting("api_token", token)
 	}
 	mac = NormalizeMAC(mac)
-	return []byte(fmt.Sprintf(`#!/bin/bash
-# Rack-auto RAMOS: stay in the Ubuntu installer RAM environment and run the agent.
-# Never return — otherwise subiquity would continue and could wipe disks.
+	return []byte(ramosStayScript(base, token, mac))
+}
+
+func ramosStayScript(server, token, mac string) string {
+	return fmt.Sprintf(`#!/bin/bash
+# Stay in the Ubuntu installer RAM environment and run the agent.
+# Never return — otherwise Subiquity would continue and could wipe disks.
+set +e
 trap 'echo "RAMOS holding (agent stopped)"; sleep infinity' EXIT
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export DEBIAN_FRONTEND=noninteractive
 SERVER=%s
 TOKEN=%s
 MAC=%s
 mkdir -p /usr/local/bin /var/log
-exec >>/var/log/rackauto.log 2>&1
-echo "rackauto RAMOS starting $(date -Is)"
-i=0
-while [ "$i" -lt 60 ]; do
-  curl -fsS "${SERVER}/api/v1/health" >/dev/null && break
-  i=$((i+1))
-  sleep 2
-done
+log() { echo "$*"; echo "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ 2>/dev/null || date) $*" >>/var/log/rackauto.log; }
+log "RAMOS starting mac=$MAC server=$SERVER"
+
 ARCH=$(uname -m)
-case "$ARCH" in
-  aarch64|arm64) A=aarch64 ;;
-  *) A=x86_64 ;;
-esac
-curl -fL -o /usr/local/bin/rackauto-agent "${SERVER}/boot/agent/${A}/rackauto-agent" || \
-  curl -fL -o /usr/local/bin/rackauto-agent "${SERVER}/boot/agent/x86_64/rackauto-agent"
-chmod +x /usr/local/bin/rackauto-agent
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq >/dev/null 2>&1 || true
-apt-get install -y -qq qemu-utils efibootmgr dosfstools e2fsprogs >/dev/null 2>&1 || true
-echo "starting rackauto-agent"
-/usr/local/bin/rackauto-agent --url "$SERVER" --token "$TOKEN" --mac "$MAC" || true
-echo "agent exited"
+case "$ARCH" in aarch64|arm64) A=aarch64 ;; *) A=x86_64 ;; esac
+AGENT=/usr/local/bin/rackauto-agent
+ok=
+for u in "${SERVER}/boot/agent/${A}/rackauto-agent" "${SERVER}/boot/agent/x86_64/rackauto-agent"; do
+  log "download $u"
+  if curl -fL --connect-timeout 5 --max-time 60 --retry 8 --retry-delay 2 -o "$AGENT" "$u"; then
+    ok=1
+    break
+  fi
+done
+if [ -z "$ok" ] || [ ! -s "$AGENT" ]; then
+  log "ERROR: cannot download rackauto-agent from ${SERVER}/boot/agent/ (copy Release agent to data/agent/<arch>/rackauto-agent on the control plane)"
+  sleep infinity
+fi
+chmod +x "$AGENT"
+
+# Never block registration on apt (installer networks often cannot reach Ubuntu archives).
+( apt-get update -qq || true
+  apt-get install -y -qq qemu-utils efibootmgr dosfstools e2fsprogs || true
+) >/var/log/rackauto-apt.log 2>&1 &
+
+log "starting rackauto-agent"
+"$AGENT" --url "$SERVER" --token "$TOKEN" --mac "$MAC" 2>&1 | tee -a /var/log/rackauto.log
+log "agent exited"
 sleep infinity
-`, shQuote(base), shQuote(token), shQuote(mac)))
+`, shQuote(server), shQuote(token), shQuote(mac))
 }
 
 func shQuote(s string) string {

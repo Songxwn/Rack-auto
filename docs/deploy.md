@@ -472,7 +472,12 @@ API Token 填错，或页面不是从控制面自己的 HTTP 打开的（不要�
 这是 Subiquity 交互安装，不是 RAMOS。v0.4.3 及更早关掉了 cloud-init 又没带 `autoinstall`，安装器就会停在语言选择，Agent 也不会注册。请换成 **v0.4.4+** 控制面后重新 PXE（不必重下 ISO）。成功时屏幕应停在 early-commands / Agent 日志，控制台出现该 MAC。若仍进语言界面：确认 `public_url` 对机器可达，并 `curl http://<public_url>/ipxe/cidata/<mac>/user-data` 能返回 `autoinstall:`。
 
 **进了 Ubuntu / RAMOS 但控制台没有机器**  
-Agent 连不上 `public_url`，或 Token 不一致。看 RAMOS 日志 `/var/log/rackauto.log`（installer 环境里）。
+画面停在 `running /bin/bash /tmp/ramos.sh` 是正常的（early-commands 不能返回，否则安装器会继续）。但 Agent 应马上出现在控制台。
+
+- 若一直只有这一行、机器还不出现：多半是旧脚本在启动 Agent 前同步跑 `apt-get` 卡住了。请用 **v0.4.5+**，重启控制面后再 PXE。屏幕上应出现 `download .../rackauto-agent` 和 `starting rackauto-agent`。
+- `cannot download rackauto-agent`：把 Release 里的 `rackauto-agent` 拷到控制面 `data/agent/x86_64/rackauto-agent`（ARM 用 `aarch64`）。
+- `register: unauthorized`：网页右上角 Token 和控制面 `api_token` 不一致。
+- 也可在安装器里切到 tty2（Alt+F2）看 `/var/log/rackauto.log`。
 
 **装机写盘失败 / qemu-img**  
 镜像 URL 机器访问不了（HTTPS 证书、要代理）。改成控制面本地上传。确认类型选对（cloud 的 qcow2 选「云镜像」）。

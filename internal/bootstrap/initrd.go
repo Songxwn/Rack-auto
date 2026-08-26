@@ -141,29 +141,16 @@ done
 mkdir -p "${rootmnt}/usr/local/bin" "${rootmnt}/etc/systemd/system/multi-user.target.wants"
 cat > "${rootmnt}/usr/local/bin/rackauto-boot.sh" << EOF
 #!/bin/bash
-trap 'sleep infinity' EXIT
+set +e
+trap 'echo "RAMOS holding"; sleep infinity' EXIT
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 SERVER='$SERVER'
-TOKEN='$TOKEN'
 MAC='$MAC'
-mkdir -p /var/log /usr/local/bin
-exec >>/var/log/rackauto.log 2>&1
-echo "RAMOS boot \$(date -Is)"
-i=0
-while [ "\$i" -lt 60 ]; do
-  curl -fsS "\${SERVER}/api/v1/health" >/dev/null && break
-  i=\$((i+1)); sleep 2
-done
-ARCH=\$(uname -m)
-case "\$ARCH" in aarch64|arm64) A=aarch64 ;; *) A=x86_64 ;; esac
-curl -fL -o /usr/local/bin/rackauto-agent "\${SERVER}/boot/agent/\${A}/rackauto-agent" || \
-  curl -fL -o /usr/local/bin/rackauto-agent "\${SERVER}/boot/agent/x86_64/rackauto-agent"
-chmod +x /usr/local/bin/rackauto-agent
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq >/dev/null 2>&1 || true
-apt-get install -y -qq qemu-utils efibootmgr dosfstools e2fsprogs >/dev/null 2>&1 || true
-/usr/local/bin/rackauto-agent --url "\$SERVER" --token "\$TOKEN" --mac "\$MAC" || true
-sleep infinity
+curl -fL --connect-timeout 5 --max-time 60 --retry 8 --retry-delay 2 -o /tmp/ramos.sh "\${SERVER}/ipxe/ramos-start.sh?mac=\${MAC}" || {
+  echo "cannot fetch ramos-start.sh from \${SERVER}"
+  sleep infinity
+}
+exec /bin/bash /tmp/ramos.sh
 EOF
 chmod 0755 "${rootmnt}/usr/local/bin/rackauto-boot.sh"
 cat > "${rootmnt}/autoinstall.yaml" << 'EOF'

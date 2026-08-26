@@ -69,4 +69,15 @@ func TestCIData(t *testing.T) {
 	if !strings.Contains(sh, "secret") {
 		t.Fatalf("token missing in start script")
 	}
+	if strings.Contains(sh, "exec >>") {
+		t.Fatal("script must keep console output")
+	}
+	if !strings.Contains(sh, "--max-time") {
+		t.Fatal("curl should time out")
+	}
+	start := strings.Index(sh, "starting rackauto-agent")
+	apt := strings.Index(sh, "apt-get update")
+	if start < 0 || apt < 0 || apt > start {
+		t.Fatal("apt-get must not block agent start")
+	}
 }
