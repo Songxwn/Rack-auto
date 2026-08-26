@@ -1,6 +1,7 @@
 package imageinspect
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os"
 	"path/filepath"
@@ -82,6 +83,50 @@ func makeWIM(t *testing.T, xml string) []byte {
 	}
 	putRes(72, int64(len(payload)), 208, int64(len(payload)))
 	return append(hdr, payload...)
+}
+
+func TestFindWIMExtentsIgnoresMagicInsideFile(t *testing.T) {
+	payload := utf16LEBOM(sampleWIMXML)
+	junk := bytes.Repeat([]byte{0xAA}, 1024)
+	copy(junk[200:], []byte(wimMagic))
+	xmlOff := int64(208 + len(junk))
+	tblOff := xmlOff + int64(len(payload))
+	hdr := make([]byte, 208)
+	copy(hdr[0:8], wimMagic)
+	binary.LittleEndian.PutUint32(hdr[8:12], 208)
+	binary.LittleEndian.PutUint32(hdr[12:16], 0x00010d00)
+	binary.LittleEndian.PutUint16(hdr[40:42], 1)
+	binary.LittleEndian.PutUint16(hdr[42:44], 1)
+	binary.LittleEndian.PutUint32(hdr[44:48], 2)
+	putRes := func(at int, size, offset, orig int64) {
+		for i := 0; i < 7; i++ {
+			hdr[at+i] = byte(size >> (8 * i))
+		}
+		binary.LittleEndian.PutUint64(hdr[at+8:at+16], uint64(offset))
+		binary.LittleEndian.PutUint64(hdr[at+16:at+24], uint64(orig))
+	}
+	putRes(48, 50, tblOff, 50)
+	putRes(72, int64(len(payload)), xmlOff, int64(len(payload)))
+	raw := append([]byte{}, hdr...)
+	raw = append(raw, junk...)
+	raw = append(raw, payload...)
+	raw = append(raw, make([]byte, 50)...)
+	second := makeWIM(t, sampleWIMXML)
+	raw = append(raw, second...)
+
+	exts := FindWIMExtents(bytes.NewReader(raw), int64(len(raw)))
+	if len(exts) != 2 {
+		t.Fatalf("extents %d %+v", len(exts), exts)
+	}
+	if exts[0].Offset != 0 {
+		t.Fatalf("first offset %d", exts[0].Offset)
+	}
+	if exts[0].Size < tblOff+50 {
+		t.Fatalf("truncated at interior MSWIM: size %d want >= %d", exts[0].Size, tblOff+50)
+	}
+	if exts[1].Offset != int64(len(raw)-len(second)) {
+		t.Fatalf("second offset %d", exts[1].Offset)
+	}
 }
 
 func TestCompatibleWindowsSkipsLinuxRoot(t *testing.T) {

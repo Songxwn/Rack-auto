@@ -902,6 +902,9 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 **Windows PE 停在命令行，任务一直「等待 PXE 进入 Windows PE」**  
 wimboot 只能把文件注到 `X:\Windows\System32`（文件名不能带路径）。旧版把 `startnet.cmd` 写错位置，PE 只跑了自带的 `wpeinit`，装机脚本没启动。请换成 **v0.4.32+** 后再 PXE。若已经停在 `X:\Windows\System32>`，可先执行 `install.cmd` 应急（仍建议升级后重来，旧脚本会去找 `X:\diskpart.txt`）。任务已经废了就先在网页里删掉再重发。
 
+**DISM 错误 13「数据无效」**  
+下载到的 `install.wim` 不是完整映像（以前会把 ISO 里偶然出现的 `MSWIM` 字节当成文件结尾，只下一小段）。请用 **v0.4.37+**，覆盖 `rackauto` 和 `winpe-curl.exe` 后**重新检测 ISO**、删掉卡死任务再 PXE。屏幕上应出现 `winpe-curl: wrote … bytes`，大小应是数 GB，不是几 MB。
+
 **Windows PE 起来了但 install.wim 下不下来**  
 `public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 用注入的 `curl.exe` 拉 `/images/win/<id>/install.wim`。装机网必须有 DHCP（静态 IP 只在装完后生效）。控制面日志应有 `WinPE curl.exe ...`；浏览器打开 `http://<public_url>/winpe/curl.exe` 应能下载到文件而不是 404。
 

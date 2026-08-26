@@ -226,6 +226,7 @@ func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL stri
 	b.WriteString("call :report 20 downloading_wim\r\n")
 	b.WriteString("call :httpget \"%WIMURL%\" W:\\install.wim\r\n")
 	b.WriteString("if errorlevel 1 goto fail\r\n")
+	b.WriteString("for %%A in (W:\\install.wim) do echo wim_bytes=%%~zA\r\n")
 	b.WriteString("call :report 45 applying_image\r\n")
 	fmt.Fprintf(&b, "dism.exe /Apply-Image /ImageFile:W:\\install.wim /Index:%d /ApplyDir:W:\\\r\n", index)
 	b.WriteString("if errorlevel 1 goto fail\r\n")

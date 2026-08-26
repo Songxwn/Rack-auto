@@ -101,6 +101,30 @@ func (h wimHdr) onDiskSize() int64 {
 	return max
 }
 
+const wimOffsetEntry = 50
+
+func (h wimHdr) resourceSpan(r io.ReaderAt, base int64) int64 {
+	max := h.onDiskSize()
+	if h.OffsetTbl.Size <= 0 || h.OffsetTbl.Size > 32<<20 {
+		return max
+	}
+	if h.OffsetTbl.Flags&wimResCompressed != 0 {
+		return max
+	}
+	buf := make([]byte, int(h.OffsetTbl.Size))
+	n, _ := r.ReadAt(buf, base+h.OffsetTbl.Offset)
+	if n < 24 {
+		return max
+	}
+	buf = buf[:n]
+	for i := 0; i+24 <= len(buf); i += wimOffsetEntry {
+		if e := parseWIMRes(buf[i : i+24]).end(); e > max {
+			max = e
+		}
+	}
+	return max
+}
+
 // WIMExtent is one WIM/ESD file embedded in a larger blob (ISO or standalone).
 type WIMExtent struct {
 	Offset int64
@@ -148,6 +172,9 @@ func readWIMExtent(r io.ReaderAt, offset, limit int64) (WIMExtent, error) {
 		return WIMExtent{}, err
 	}
 	size := h.onDiskSize()
+	if span := h.resourceSpan(r, offset); span > size {
+		size = span
+	}
 	if limit > 0 && size > limit {
 		size = limit
 	}
@@ -427,21 +454,29 @@ func FindWIMExtents(r io.ReaderAt, size int64) []WIMExtent {
 		off += step
 	}
 	var out []WIMExtent
-	for i, pos := range hits {
-		limit := size - pos
-		if i+1 < len(hits) {
-			limit = hits[i+1] - pos
+	for _, pos := range hits {
+		if wimHitCovered(out, pos) {
+			continue
 		}
-		ext, err := readWIMExtent(r, pos, limit)
+		ext, err := readWIMExtent(r, pos, size-pos)
 		if err != nil {
 			continue
 		}
-		if ext.Size <= 0 || ext.Size > limit {
-			ext.Size = limit
+		if ext.Size <= 0 {
+			continue
 		}
 		out = append(out, ext)
 	}
 	return out
+}
+
+func wimHitCovered(exts []WIMExtent, pos int64) bool {
+	for _, e := range exts {
+		if pos > e.Offset && pos < e.Offset+e.Size {
+			return true
+		}
+	}
+	return false
 }
 
 func FindWIMExtentsFile(path string) ([]WIMExtent, error) {
@@ -455,4 +490,16 @@ func FindWIMExtentsFile(path string) ([]WIMExtent, error) {
 		return nil, err
 	}
 	return FindWIMExtents(f, st.Size()), nil
+}
+
+// WIMLengthAt returns the on-disk size of the WIM starting at offset.
+func WIMLengthAt(r io.ReaderAt, offset, fileSize int64) (int64, error) {
+	if offset < 0 || fileSize <= offset {
+		return 0, fmt.Errorf("bad WIM range")
+	}
+	ext, err := readWIMExtent(r, offset, fileSize-offset)
+	if err != nil {
+		return 0, err
+	}
+	return ext.Size, nil
 }

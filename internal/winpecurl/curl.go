@@ -197,16 +197,25 @@ func doOnce(o options) (int, error) {
 				_ = os.Remove(tmp)
 			}
 		}()
-		if _, err := io.Copy(f, resp.Body); err != nil {
+		pw := &countWriter{w: f}
+		if _, err := io.Copy(pw, resp.Body); err != nil {
 			return 1, err
 		}
 		if err := f.Close(); err != nil {
 			return 1, err
 		}
+		if resp.ContentLength >= 0 && pw.n != resp.ContentLength {
+			return 1, fmt.Errorf("short read %d bytes, Content-Length %d", pw.n, resp.ContentLength)
+		}
 		_ = os.Remove(o.output)
 		if err := os.Rename(tmp, o.output); err != nil {
 			return 1, err
 		}
+		if wimOutput(o.output) && !fileHasWIMMagic(o.output) {
+			_ = os.Remove(o.output)
+			return 1, fmt.Errorf("downloaded file is not a WIM (HTML/truncated)")
+		}
+		fmt.Fprintf(os.Stderr, "winpe-curl: wrote %d bytes\n", pw.n)
 		keep = true
 		return 0, nil
 	}
@@ -214,4 +223,38 @@ func doOnce(o options) (int, error) {
 		return 1, err
 	}
 	return 0, nil
+}
+
+type countWriter struct {
+	w    io.Writer
+	n    int64
+	last int64
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	if c.n-c.last >= 64<<20 {
+		fmt.Fprintf(os.Stderr, "winpe-curl: %d MB\n", c.n>>20)
+		c.last = c.n
+	}
+	return n, err
+}
+
+func wimOutput(path string) bool {
+	s := strings.ToLower(path)
+	return strings.HasSuffix(s, ".wim") || strings.HasSuffix(s, ".esd")
+}
+
+func fileHasWIMMagic(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var m [8]byte
+	if _, err := io.ReadFull(f, m[:]); err != nil {
+		return false
+	}
+	return string(m[:]) == "MSWIM\x00\x00\x00"
 }

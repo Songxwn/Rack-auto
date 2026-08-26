@@ -44,7 +44,7 @@ func TestMainGETAndPOST(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out := filepath.Join(dir, "install.wim")
+	out := filepath.Join(dir, "payload.bin")
 	if code := winpecurl.Main([]string{"-fL", "--retry", "2", "--retry-delay", "0", "-o", out, srv.URL + "/file"}); code != 0 {
 		t.Fatalf("get code %d", code)
 	}
@@ -68,5 +68,17 @@ func TestMainGETAndPOST(t *testing.T) {
 	}
 	if code := winpecurl.Main([]string{"-fL", "-o", filepath.Join(dir, "x"), srv.URL + "/missing"}); code != 22 {
 		t.Fatalf("fail code %d", code)
+	}
+}
+
+func TestRejectsHTMLSavedAsWIM(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte("<!doctype html><title>login</title>"))
+	}))
+	defer srv.Close()
+	out := filepath.Join(t.TempDir(), "install.wim")
+	if code := winpecurl.Main([]string{"-fL", "-o", out, srv.URL}); code == 0 {
+		t.Fatal("HTML must not be accepted as a WIM")
 	}
 }

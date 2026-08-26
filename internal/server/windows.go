@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Songxwn/Rack-auto/internal/bootstrap"
 	"github.com/Songxwn/Rack-auto/internal/imageinspect"
@@ -273,7 +272,11 @@ func (s *Server) serveWinPayload(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, p)
 	case "install.wim", "install.esd":
 		extracted := filepath.Join(s.Cfg.ImagesDir(), "win", id, name)
-		if st, err := os.Stat(extracted); err == nil && st.Size() > 0 {
+		want := int64(0)
+		if img.Inspect != nil {
+			want = img.Inspect.InstallSize
+		}
+		if st, err := os.Stat(extracted); err == nil && st.Size() > 0 && (want <= 0 || st.Size() >= want) {
 			http.ServeFile(w, r, extracted)
 			return
 		}
@@ -290,7 +293,7 @@ func (s *Server) serveWinPayload(w http.ResponseWriter, r *http.Request) {
 				src = p
 			}
 		}
-		if src == "" || sz <= 0 {
+		if src == "" {
 			http.NotFound(w, r)
 			return
 		}
@@ -300,12 +303,25 @@ func (s *Server) serveWinPayload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer f.Close()
-		mod := time.Now()
 		if st, err := f.Stat(); err == nil {
-			mod = st.ModTime()
+			if n, err := imageinspect.WIMLengthAt(f, off, st.Size()); err == nil && n > sz {
+				sz = n
+			}
+		}
+		if sz <= 0 {
+			http.NotFound(w, r)
+			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		http.ServeContent(w, r, name, mod, io.NewSectionReader(f, off, sz))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", sz))
+		w.Header().Set("Accept-Ranges", "none")
+		w.Header().Set("Cache-Control", "public, max-age=60")
+		if r.Method == http.MethodHead {
+			return
+		}
+		if _, err := io.CopyN(w, io.NewSectionReader(f, off, sz), sz); err != nil {
+			log.Printf("serve %s: %v", name, err)
+		}
 	default:
 		http.NotFound(w, r)
 	}
