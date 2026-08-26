@@ -49,7 +49,7 @@ install -m 0755 rackauto-agent-linux-amd64 data/agent/x86_64/rackauto-agent 2>/d
   || install -m 0755 rackauto-agent data/agent/x86_64/rackauto-agent
 ```
 
-更完整的 `/opt/rackauto` 安装见 [docs/deploy.md](docs/deploy.md#4-安装控制面)。
+更完整的 `/opt/rackauto` 安装见 [docs/deploy.md](docs/deploy.md#4-安装控制面)。配置文件不在 Release 包里，按 [单独下载源码配置文件](docs/deploy.md#5-单独下载源码配置文件) 从 GitHub 拉取 YAML 和 systemd 单元即可，不必 clone。
 
 ### 升级（覆盖二进制）
 
@@ -74,12 +74,18 @@ sudo systemctl start rackauto
 curl -sS http://127.0.0.1:8080/api/v1/health
 ```
 
-配置、数据库、镜像、ISO 都不要动。两个二进制都要换；已在 RAMOS 里的机器需重新 PXE 才能拿到新 Agent。逐步说明（含文件名带平台后缀的旧包、ARM、Docker）见 [升级教程](docs/deploy.md#11-升级控制面下载二进制覆盖)。
+配置、数据库、镜像、ISO 都不要动。两个二进制都要换；已在 RAMOS 里的机器需重新 PXE 才能拿到新 Agent。逐步说明（含文件名带平台后缀的旧包、ARM、Docker）见 [升级教程](docs/deploy.md#12-升级控制面下载二进制覆盖)。
 
 ### 2. 写一份配置
 
+Release 安装没有 example 文件时，按 [单独下载源码配置文件](docs/deploy.md#5-单独下载源码配置文件) 拉取，不要 clone 整仓：
+
 ```bash
+# 已有源码目录时：
 cp configs/rackauto.example.yaml configs/rackauto.yaml
+
+# /opt 安装（第 5 节已下载 example）时：
+# sudo nano /opt/rackauto/configs/rackauto.yaml
 ```
 
 打开文件，把 `public_url` 改成**待装机服务器能访问的控制面地址**，例如 `http://10.0.0.50:8080`。不要填 `127.0.0.1`：PXE 起来之后，是服务器自己来拉内核的。
@@ -94,7 +100,7 @@ iPXE 已内置。Ubuntu 26.04 live-server ISO 第一次需要联网缓存（约 
 ./bin/rackauto bootstrap -config configs/rackauto.yaml
 ```
 
-详见 [部署教程](docs/deploy.md#6-bootstrap本机-ipxe-与离线缓存)。
+详见 [部署教程](docs/deploy.md#7-bootstrap本机-ipxe-与离线缓存)。
 
 ### 4. 启动
 
@@ -111,7 +117,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 - **实验室空网段：** 打开「网络引导」，选中连交换机的**接入网卡**，启用内置 DHCP，点保存并应用。同一二层不要再开别的 DHCP。
 - **机房已有 DHCP：** 不要开内置。把 `next-server` 指到控制面；BIOS 用 `undionly.kpxe`，UEFI 用 `ipxe.efi`。页面底部有可复制的 dhcpd / dnsmasq 片段。
 
-接着在「机器」里登记 BMC（或让服务器 PXE 一次自动报到），在「镜像」登记 cloud 镜像 URL，到「装机」填用户和 SSH 公钥后下发。逐步点击说明在 [第一次装机](docs/deploy.md#9-第一次装机)。
+接着在「机器」里登记 BMC（或让服务器 PXE 一次自动报到），在「镜像」登记 cloud 镜像 URL，到「装机」填用户和 SSH 公钥后下发。逐步点击说明在 [第一次装机](docs/deploy.md#10-第一次装机)。
 
 ## 常用配置
 
@@ -131,8 +137,8 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 
 ## 长期运行
 
-- systemd 单元示例：[deploy/rackauto.service](deploy/rackauto.service)
-- Docker（host 网络）：先 `cp configs/rackauto.example.yaml configs/rackauto.yaml` 并改好 `public_url`，再 `cd deploy && docker compose up -d --build`，然后在容器里跑一次 `bootstrap`。细节在 [Docker 部署](docs/deploy.md#12-docker-部署)。
+- systemd 单元示例：[deploy/rackauto.service](deploy/rackauto.service)（无源码时按 [第 5 节](docs/deploy.md#5-单独下载源码配置文件) 下载）
+- Docker（host 网络）需要 clone 源码：先 `cp configs/rackauto.example.yaml configs/rackauto.yaml` 并改好 `public_url`，再 `cd deploy && docker compose up -d --build`，然后在容器里跑一次 `bootstrap`。细节在 [Docker 部署](docs/deploy.md#13-docker-部署)。
 
 ## API 摘要
 

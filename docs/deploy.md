@@ -10,16 +10,17 @@
 2. [你需要准备什么](#2-你需要准备什么)
 3. [推荐网络怎么接](#3-推荐网络怎么接)
 4. [安装控制面](#4-安装控制面)
-5. [写配置（最容易写错的地方）](#5-写配置最容易写错的地方)
-6. [bootstrap：本机 iPXE 与离线缓存](#6-bootstrap本机-ipxe-与离线缓存)
-7. [启动服务](#7-启动服务)
-8. [配置 DHCP](#8-配置-dhcp)
-9. [第一次装机](#9-第一次装机)
-10. [用 systemd 长期跑](#10-用-systemd-长期跑)
-11. [升级控制面（下载二进制覆盖）](#11-升级控制面下载二进制覆盖)
-12. [Docker 部署](#12-docker-部署)
-13. [自检清单](#13-自检清单)
-14. [常见问题](#14-常见问题)
+5. [单独下载源码配置文件](#5-单独下载源码配置文件)
+6. [写配置（最容易写错的地方）](#6-写配置最容易写错的地方)
+7. [bootstrap：本机 iPXE 与离线缓存](#7-bootstrap本机-ipxe-与离线缓存)
+8. [启动服务](#8-启动服务)
+9. [配置 DHCP](#9-配置-dhcp)
+10. [第一次装机](#10-第一次装机)
+11. [用 systemd 长期跑](#11-用-systemd-长期跑)
+12. [升级控制面（下载二进制覆盖）](#12-升级控制面下载二进制覆盖)
+13. [Docker 部署](#13-docker-部署)
+14. [自检清单](#14-自检清单)
+15. [常见问题](#15-常见问题)
 
 ---
 
@@ -117,7 +118,7 @@ ARM 控制面把 `amd64` 换成 `arm64`，Agent 目录用 `data/agent/aarch64/`�
 
 若还要给 ARM 服务器装机，再下一份 `rackauto-linux-arm64.tar.gz`，把其中的 Agent 放到 `data/agent/aarch64/rackauto-agent`。
 
-以后升级不要重装目录，按 [第 11 节](#11-升级控制面下载二进制覆盖) 下载新包、覆盖这两个文件即可。
+Release 包里**没有** YAML 和 systemd 单元，接着按 [第 5 节](#5-单独下载源码配置文件) 单独下载即可，不必 `git clone`。以后升级不要重装目录，按 [第 12 节](#12-升级控制面下载二进制覆盖) 下载新包、覆盖这两个二进制即可。
 
 ### B. 从源码编译（可选）
 
@@ -141,19 +142,70 @@ go build -o bin/rackauto-agent ./cmd/rackauto-agent
 
 ### C. Docker
 
-见 [第 12 节](#12-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 Ubuntu live-server ISO。
+见 [第 13 节](#13-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 Ubuntu live-server ISO。
 
 ---
 
-## 5. 写配置（最容易写错的地方）
+## 5. 单独下载源码配置文件
+
+GitHub Release 只含 `rackauto` / `rackauto-agent`。配置示例、systemd 单元、Compose 文件在**源码仓库**里。控制面按第 4 节 A 装二进制时，**不必 clone 整仓，也不必装 Go**，按文件下载即可。
+
+建议和当前二进制同一版：网页左下角或 `curl -sS http://127.0.0.1:8080/api/v1/health` 里的 `version`（例如 `v0.4.14`）。还没装过时用 `main`，拿仓库最新示例。
 
 ```bash
-# 源码目录里：
-cp configs/rackauto.example.yaml configs/rackauto.yaml
+# 改成你的版本；追新用 main
+VER=main
+RAW="https://raw.githubusercontent.com/Songxwn/Rack-auto/${VER}"
+# 若 raw.githubusercontent.com 访问失败，可改用：
+# RAW="https://cdn.jsdelivr.net/gh/Songxwn/Rack-auto@${VER}"
 
-# 或 Release 安装到 /opt/rackauto 时：
-sudo cp configs/rackauto.example.yaml /opt/rackauto/configs/rackauto.yaml
-# （若没有 clone，可从仓库复制 example：https://github.com/Songxwn/Rack-auto/blob/main/configs/rackauto.example.yaml）
+sudo mkdir -p /opt/rackauto/configs /opt/rackauto/deploy
+tmp=$(mktemp)
+
+curl -fL -o "$tmp" "$RAW/configs/rackauto.example.yaml"
+sudo install -m 0644 "$tmp" /opt/rackauto/configs/rackauto.example.yaml
+# 已有 rackauto.yaml 时不要覆盖（里面是你改过的 public_url / token）
+if [ ! -f /opt/rackauto/configs/rackauto.yaml ]; then
+  sudo cp /opt/rackauto/configs/rackauto.example.yaml /opt/rackauto/configs/rackauto.yaml
+fi
+
+curl -fL -o "$tmp" "$RAW/deploy/rackauto.service"
+sudo install -m 0644 "$tmp" /opt/rackauto/deploy/rackauto.service
+
+# 只用 Docker 时再下这一份
+curl -fL -o "$tmp" "$RAW/deploy/docker-compose.yml"
+sudo install -m 0644 "$tmp" /opt/rackauto/deploy/docker-compose.yml
+
+rm -f "$tmp"
+ls -l /opt/rackauto/configs /opt/rackauto/deploy
+```
+
+浏览器打开也可以（复制到目标路径即可）：
+
+- [configs/rackauto.example.yaml](https://github.com/Songxwn/Rack-auto/blob/main/configs/rackauto.example.yaml)
+- [deploy/rackauto.service](https://github.com/Songxwn/Rack-auto/blob/main/deploy/rackauto.service)
+- [deploy/docker-compose.yml](https://github.com/Songxwn/Rack-auto/blob/main/deploy/docker-compose.yml)
+
+想一次拿整个 `configs/` 和 `deploy/`、仍不编译时，用稀疏克隆：
+
+```bash
+git clone --depth 1 --filter=blob:none --sparse https://github.com/Songxwn/Rack-auto.git
+cd Rack-auto
+git sparse-checkout set configs deploy
+```
+
+下好后去 [第 6 节](#6-写配置最容易写错的地方) 改 `public_url` 和 `api_token`。systemd 单元在 [第 11 节](#11-用-systemd-长期跑) 安装。升级二进制时**不要**再覆盖已经改过的 `rackauto.yaml`。
+
+---
+
+## 6. 写配置（最容易写错的地方）
+
+```bash
+# 已按第 5 节下载到 /opt/rackauto 时，直接编辑：
+sudo ${EDITOR:-nano} /opt/rackauto/configs/rackauto.yaml
+
+# 源码目录（clone 或稀疏克隆）里：
+cp configs/rackauto.example.yaml configs/rackauto.yaml
 ```
 
 用编辑器打开，**至少改这两项**：
@@ -180,7 +232,7 @@ ip -br a
 
 ---
 
-## 6. bootstrap：本机 iPXE 与离线缓存
+## 7. bootstrap：本机 iPXE 与离线缓存
 
 iPXE 固件已经打进控制面程序，**PXE 阶段不会访问 boot.ipxe.org**。`serve` 启动时也会自动把 `undionly.kpxe` / `ipxe.efi` 写到 `data/tftp/`。
 
@@ -233,7 +285,7 @@ sudo install -m 0755 rackauto-agent-linux-arm64 /opt/rackauto/data/agent/aarch64
 
 ---
 
-## 7. 启动服务
+## 8. 启动服务
 
 UDP 67（DHCP）和 69（TFTP）是特权端口，**第一次请用 root**：
 
@@ -279,7 +331,7 @@ sudo ufw allow 67/udp
 
 ---
 
-## 8. 配置 DHCP
+## 9. 配置 DHCP
 
 打开控制台 **07 网络引导**。上方「控制面地址」应与 `public_url` 一致，不对就改完点保存。
 
@@ -333,7 +385,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 ---
 
-## 9. 第一次装机
+## 10. 第一次装机
 
 建议第一次用一台**可以重装**的机器，磁盘会被覆盖。
 
@@ -376,12 +428,17 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 ---
 
-## 10. 用 systemd 长期跑
+## 11. 用 systemd 长期跑
 
-仓库提供了 [deploy/rackauto.service](../deploy/rackauto.service) 示例。
+单元文件在源码 `deploy/rackauto.service`。没 clone 时按 [第 5 节](#5-单独下载源码配置文件) 下到 `/opt/rackauto/deploy/`。
 
 ```bash
-sudo cp deploy/rackauto.service /etc/systemd/system/rackauto.service
+# /opt 安装（第 5 节已下载）：
+sudo cp /opt/rackauto/deploy/rackauto.service /etc/systemd/system/rackauto.service
+
+# 或源码目录：
+# sudo cp deploy/rackauto.service /etc/systemd/system/rackauto.service
+
 # 按实际路径编辑 ExecStart、WorkingDirectory
 sudo systemctl daemon-reload
 sudo systemctl enable --now rackauto
@@ -390,7 +447,7 @@ sudo journalctl -u rackauto -f
 
 ---
 
-## 11. 升级控制面（下载二进制覆盖）
+## 12. 升级控制面（下载二进制覆盖）
 
 升级 = **下载 GitHub Release → 覆盖两个二进制 → 重启进程**。不要在控制面 `go build`，也不要重装整个 `/opt/rackauto`。
 
@@ -493,9 +550,11 @@ curl -sS http://127.0.0.1:8080/api/v1/health
 
 ---
 
-## 12. Docker 部署
+## 13. Docker 部署
 
-Compose 使用 `network_mode: host`，这样 DHCP/TFTP 才能绑网卡。请先在仓库根目录准备好配置：
+Compose 使用 `network_mode: host`，这样 DHCP/TFTP 才能绑网卡。构建镜像需要仓库源码（Dockerfile 的 context 是仓库根），请 `git clone`。只跑 Release 二进制时不要走 Compose，用第 4 节 A + [第 5 节](#5-单独下载源码配置文件) 即可。
+
+已有源码时：
 
 ```bash
 cp configs/rackauto.example.yaml configs/rackauto.yaml
@@ -509,7 +568,7 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 ---
 
-## 13. 自检清单
+## 14. 自检清单
 
 按顺序打勾，卡在哪一步就去下一节对号入座。
 
@@ -525,10 +584,10 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 ---
 
-## 14. 常见问题
+## 15. 常见问题
 
 **如何升级到新版本**  
-不要重装、不要编译。按 [第 11 节](#11-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto` 和 `rackauto-agent`，重启控制面。只换其中一个，装机行为不会完整更新。
+不要重装、不要编译。按 [第 12 节](#12-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto` 和 `rackauto-agent`，重启控制面。只换其中一个，装机行为不会完整更新。
 
 **镜像要选系统和版本**  
 Debian 12 和 Ubuntu 24.04 写网卡的方式不同（ifupdown / netplan），Rocky 8 和 9 也不一样（ifcfg / NetworkManager）。登记或上传时选对系统和版本，装机才会写入对应配置。Bond 和 VLAN（含 Bond 上的 VLAN）在装机向导第 3 步添加。
