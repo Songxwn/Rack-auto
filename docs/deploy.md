@@ -466,7 +466,10 @@ API Token 填错，或页面不是从控制面自己的 HTTP 打开的（不要�
 3. **机器内存太小。** 建议 ≥ 4GB；2GB 虚拟机仍可能在 wget/`tmpfs` 时 OOM。
 4. **`public_url` 对 PXE 网不可达**，或 `casper.iso` 404。串口/屏幕上应能看到 casper 在 HTTP 拉 `casper.iso`。
 
-不要用带分号的 `ds=nocloud-net;s=...`：iPXE 会把 `;` 当成命令分隔符，内核命令行被截断。v0.4.2 改为 `iso-url=` + initrd 里的 casper-bottom 拉起 Agent。
+不要用带分号的 `ds=nocloud-net;s=...`：iPXE 会把 `;` 当成命令分隔符，内核命令行被截断。v0.4.4 用 `autoinstall cloud-config-url=.../user-data`（无分号）让 Subiquity 跑 early-commands 拉起 Agent，而不是语言选择界面。
+
+**PXE 进了 Ubuntu「Welcome / 选择语言」安装界面**  
+这是 Subiquity 交互安装，不是 RAMOS。v0.4.3 及更早关掉了 cloud-init 又没带 `autoinstall`，安装器就会停在语言选择，Agent 也不会注册。请换成 **v0.4.4+** 控制面后重新 PXE（不必重下 ISO）。成功时屏幕应停在 early-commands / Agent 日志，控制台出现该 MAC。若仍进语言界面：确认 `public_url` 对机器可达，并 `curl http://<public_url>/ipxe/cidata/<mac>/user-data` 能返回 `autoinstall:`。
 
 **进了 Ubuntu / RAMOS 但控制台没有机器**  
 Agent 连不上 `public_url`，或 Token 不一致。看 RAMOS 日志 `/var/log/rackauto.log`（installer 环境里）。

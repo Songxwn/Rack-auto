@@ -228,7 +228,7 @@ sanboot --no-describe --drive 0x80 || exit
 echo Rack-auto RAMOS (Ubuntu %s / %s / %s)
 set base %s
 echo casper.iso is squashfs layers only - not the 2.7G live-server ISO
-kernel ${base}/ramos/ubuntu/%s/vmlinuz initrd=initrd boot=casper ip=dhcp iso-url=${base}/ramos/ubuntu/%s/casper.iso ignore_uuid noprompt cloud-init=disabled layerfs-path=%s root=/dev/ram0 console=tty0 console=ttyS0,115200 --- rackauto_url=${base} rackauto_token=%s rackauto_mac=${mac}
+kernel ${base}/ramos/ubuntu/%s/vmlinuz initrd=initrd boot=casper ip=dhcp iso-url=${base}/ramos/ubuntu/%s/casper.iso ignore_uuid noprompt autoinstall cloud-config-url=${base}/ipxe/cidata/${mac}/user-data layerfs-path=%s root=/dev/ram0 console=tty0 console=ttyS0,115200 --- rackauto_url=${base} rackauto_token=%s rackauto_mac=${mac}
 initrd ${base}/ramos/ubuntu/%s/initrd
 boot
 `, rel, firmware, archDir, base, archDir, archDir, layer, token, archDir)
@@ -280,6 +280,7 @@ func (s *Service) CIDataUserData(mac string) []byte {
 	body := fmt.Sprintf(`#cloud-config
 autoinstall:
   version: 1
+  interactive-sections: []
   refresh-installer:
     update: false
   early-commands:

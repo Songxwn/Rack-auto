@@ -24,8 +24,14 @@ func TestScriptContainsKernel(t *testing.T) {
 	if !strings.Contains(out, "iso-url=") || !strings.Contains(out, "layerfs-path=") {
 		t.Fatalf("expected casper netboot: %s", out)
 	}
-	if !strings.Contains(out, "cloud-init=disabled") || !strings.Contains(out, "noprompt") {
-		t.Fatalf("expected casper flags: %s", out)
+	if !strings.Contains(out, "autoinstall") || !strings.Contains(out, "cloud-config-url=") {
+		t.Fatalf("expected autoinstall via cloud-config-url: %s", out)
+	}
+	if !strings.Contains(out, "/ipxe/cidata/${mac}/user-data") {
+		t.Fatalf("expected cidata user-data url: %s", out)
+	}
+	if strings.Contains(out, "cloud-init=disabled") {
+		t.Fatalf("cloud-init=disabled blocks autoinstall: %s", out)
 	}
 	if !strings.Contains(out, "rackauto_url=") || !strings.Contains(out, "rackauto_mac=") {
 		t.Fatalf("expected agent cmdline: %s", out)
@@ -45,6 +51,9 @@ func TestCIData(t *testing.T) {
 	ud := string(s.CIDataUserData("AA-BB-CC-DD-EE-FF"))
 	if !strings.Contains(ud, "autoinstall:") || !strings.Contains(ud, "ramos-start.sh") {
 		t.Fatalf("user-data %s", ud)
+	}
+	if !strings.Contains(ud, "interactive-sections:") {
+		t.Fatalf("interactive-sections %s", ud)
 	}
 	if !strings.Contains(ud, "aa:bb:cc:dd:ee:ff") {
 		t.Fatalf("mac in user-data %s", ud)

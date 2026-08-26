@@ -46,6 +46,10 @@ func makeInitrdOverlay(script string) ([]byte, error) {
 		body []byte
 		mode uint32
 	}{
+		{name: "scripts", mode: 040755},
+		{name: "scripts/casper-bottom", mode: 040755},
+		{name: "conf", mode: 040755},
+		{name: "conf/conf.d", mode: 040755},
 		{name: "scripts/casper-bottom/99rackauto", body: []byte(script), mode: 0100755},
 		{name: "conf/conf.d/zz-rackauto-stamp", body: []byte("rackauto\n"), mode: 0100644},
 	}
@@ -162,6 +166,21 @@ apt-get install -y -qq qemu-utils efibootmgr dosfstools e2fsprogs >/dev/null 2>&
 sleep infinity
 EOF
 chmod 0755 "${rootmnt}/usr/local/bin/rackauto-boot.sh"
+cat > "${rootmnt}/autoinstall.yaml" << 'EOF'
+version: 1
+interactive-sections: []
+early-commands:
+  - /usr/local/bin/rackauto-boot.sh
+EOF
+mkdir -p "${rootmnt}/etc/cloud/cloud.cfg.d" "${rootmnt}/etc/systemd/system/multi-user.target.wants"
+cat > "${rootmnt}/etc/cloud/cloud.cfg.d/99-rackauto.cfg" << 'EOF'
+#cloud-config
+autoinstall:
+  version: 1
+  interactive-sections: []
+  early-commands:
+    - /usr/local/bin/rackauto-boot.sh
+EOF
 cat > "${rootmnt}/etc/systemd/system/rackauto-agent.service" << 'EOF'
 [Unit]
 Description=Rack-auto RAMOS agent
@@ -176,8 +195,5 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 ln -sf /etc/systemd/system/rackauto-agent.service "${rootmnt}/etc/systemd/system/multi-user.target.wants/rackauto-agent.service"
-for s in subiquity.service snap.subiquity.service serial-subiquity.service plymouth-start.service; do
-	ln -sf /dev/null "${rootmnt}/etc/systemd/system/${s}"
-done
 `
 }
