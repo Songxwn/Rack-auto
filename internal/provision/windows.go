@@ -200,14 +200,14 @@ func WindowsJobMedia(base, token, jobID, mac string, spec model.InstallSpec, img
 		Startnet:     StartnetCMD(),
 		Winpeshl:     WinpeshlINI(),
 		Diskpart:     DiskpartScript(spec.Firmware, WinPEDiskNumber(spec.Disk)),
-		Install:      windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL, idx, bcd, spec.Reboot),
+		Install:      windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL, idx, bcd, spec.Reboot, sanitizeProductKey(EffectiveProductKey(spec))),
 		Unattend:     UnattendXML(spec, mac),
 		CompleteJSON: string(okBody) + "\n",
 		FailJSON:     string(failBody) + "\n",
 	}
 }
 
-func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL string, index int, bcd string, reboot bool) string {
+func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL string, index int, bcd string, reboot bool, productKey string) string {
 	tok := batEscape(token)
 	var b strings.Builder
 	b.WriteString("@echo off\r\nsetlocal EnableExtensions\r\n")
@@ -230,6 +230,11 @@ func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL stri
 	b.WriteString("call :report 45 applying_image\r\n")
 	fmt.Fprintf(&b, "dism.exe /Apply-Image /ImageFile:W:\\install.wim /Index:%d /ApplyDir:W:\\\r\n", index)
 	b.WriteString("if errorlevel 1 goto fail\r\n")
+	if productKey != "" {
+		b.WriteString("call :report 55 embedding_product_key\r\n")
+		fmt.Fprintf(&b, "dism.exe /Image:W:\\ /Set-ProductKey:%s\r\n", productKey)
+		b.WriteString("if errorlevel 1 echo WARN Set-ProductKey failed, will retry at first logon\r\n")
+	}
 	b.WriteString("call :report 80 bootloader\r\n")
 	fmt.Fprintf(&b, "bcdboot W:\\Windows /s S: /f %s\r\n", bcd)
 	b.WriteString("if errorlevel 1 (\r\n")
@@ -307,9 +312,16 @@ func UnattendXML(spec model.InstallSpec, pxeMAC string) string {
 	userEsc := xmlEscape(user)
 	hostEsc := xmlEscape(host)
 	org := "Rack-auto"
-	// DISM /Apply-Image never runs the windowsPE pass, so ProductKey here does not apply.
-	// Install GVLK / retail keys and KMS host after first desktop logon via slmgr.
+	key := sanitizeProductKey(EffectiveProductKey(spec))
+	// windowsPE ProductKey is skipped by DISM apply; still write it for completeness.
+	// specialize ProductKey applies on first boot; install.cmd also runs DISM /Set-ProductKey;
+	// FirstLogonCommands runs slmgr /ipk as a final retry.
 	keyXML := "<ProductKey><WillShowUI>OnError</WillShowUI></ProductKey>"
+	shellKey := ""
+	if key != "" {
+		keyXML = "<ProductKey><Key>" + xmlEscape(key) + "</Key><WillShowUI>OnError</WillShowUI></ProductKey>"
+		shellKey = "\n      <ProductKey>" + xmlEscape(key) + "</ProductKey>"
+	}
 	localAccount := ""
 	autoUser := "Administrator"
 	if !strings.EqualFold(user, "Administrator") {
@@ -371,7 +383,7 @@ func UnattendXML(spec model.InstallSpec, pxeMAC string) string {
   <settings pass="specialize">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <ComputerName>` + hostEsc + `</ComputerName>
-      <TimeZone>` + xmlEscape(tz) + `</TimeZone>
+      <TimeZone>` + xmlEscape(tz) + `</TimeZone>` + shellKey + `
     </component>` + rdp + tcp + dns + `
   </settings>
   <settings pass="oobeSystem">

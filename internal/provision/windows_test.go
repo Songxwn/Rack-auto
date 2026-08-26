@@ -71,6 +71,7 @@ func TestUnattendAndDiskpart(t *testing.T) {
 		"rack-node-01",
 		"p&amp;a&lt;&#34;ss",
 		"slmgr.vbs /ipk XXXXX-XXXXX-XXXXX-XXXXX-XXXXX",
+		"<ProductKey>XXXXX-XXXXX-XXXXX-XXXXX-XXXXX</ProductKey>",
 		"AA-BB-CC-DD-EE-FF",
 		"10.0.0.20/24",
 		"fDenyTSConnections>false",
@@ -79,9 +80,6 @@ func TestUnattendAndDiskpart(t *testing.T) {
 		if !strings.Contains(xml, want) {
 			t.Fatalf("missing %q in unattend:\n%s", want, xml)
 		}
-	}
-	if strings.Contains(xml, "<Key>XXXXX-XXXXX-XXXXX-XXXXX-XXXXX</Key>") {
-		t.Fatal("product key must be applied at first logon via slmgr, not windowsPE ProductKey")
 	}
 	if strings.Contains(xml, "zh-CN") {
 		t.Fatal("must not force zh-CN")
@@ -100,6 +98,9 @@ func TestUnattendAndDiskpart(t *testing.T) {
 	media := provision.WindowsJobMedia("http://10.0.0.1:8080", "tok%en", "job1", "aa:bb:cc:dd:ee:ff", spec, img)
 	if !strings.Contains(media.Install, "dism.exe /Apply-Image") {
 		t.Fatal(media.Install)
+	}
+	if !strings.Contains(media.Install, "dism.exe /Image:W:\\ /Set-ProductKey:XXXXX-XXXXX-XXXXX-XXXXX-XXXXX") {
+		t.Fatal("install.cmd must embed product key offline after Apply-Image")
 	}
 	if !strings.Contains(media.Install, "tok%%en") {
 		t.Fatal("percent in token")

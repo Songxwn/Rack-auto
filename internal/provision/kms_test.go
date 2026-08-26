@@ -53,6 +53,8 @@ func TestUnattendKMSAndDefender(t *testing.T) {
 		"slmgr.vbs /ipk WX4NM-KYWYW-QJJR4-XV3QB-6VM33",
 		"slmgr.vbs /skms kms.songxwn.com",
 		"slmgr.vbs /ato",
+		"<ProductKey>WX4NM-KYWYW-QJJR4-XV3QB-6VM33</ProductKey>",
+		"<Key>WX4NM-KYWYW-QJJR4-XV3QB-6VM33</Key>",
 		"Uninstall-WindowsFeature -Name Windows-Defender",
 	} {
 		if !strings.Contains(xml, want) {
@@ -62,8 +64,12 @@ func TestUnattendKMSAndDefender(t *testing.T) {
 	if strings.Contains(xml, "Test-Connection") {
 		t.Fatal("must not wait for network before activation")
 	}
-	if strings.Contains(xml, "<Key>WX4NM-KYWYW-QJJR4-XV3QB-6VM33</Key>") {
-		t.Fatal("GVLK must not go into windowsPE ProductKey (DISM skips that pass)")
+	img := model.Image{ID: "img1", Kind: model.ImageWindowsISO, Inspect: &model.ImageInspect{
+		Windows: true, WIMImages: []model.WIMImage{{Index: 2, Name: "Datacenter"}},
+	}}
+	media := provision.WindowsJobMedia("http://10.0.0.1:8080", "t", "job1", "aa:bb:cc:dd:ee:ff", spec, img)
+	if !strings.Contains(media.Install, "/Set-ProductKey:WX4NM-KYWYW-QJJR4-XV3QB-6VM33") {
+		t.Fatal(media.Install)
 	}
 	if provision.EffectiveProductKey(model.InstallSpec{ProductKey: "CUSTOM", KMSKeyID: "2022-standard"}) != "CUSTOM" {
 		t.Fatal("custom key should win")
