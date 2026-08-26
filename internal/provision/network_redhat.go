@@ -17,7 +17,7 @@ func writeNM(root string, cfg model.NetConfig) error {
 	}
 	_ = os.MkdirAll(filepath.Join(root, "etc/NetworkManager/conf.d"), 0o755)
 	_ = os.WriteFile(filepath.Join(root, "etc/NetworkManager/conf.d/99-rackauto.conf"), []byte("[main]\nno-auto-default=*\n"), 0644)
-	eths, bonds, vlans := classifyNICs(cfg)
+	eths, bonds, vlans := planNICs(cfg)
 	bondOf := map[string]string{}
 	for _, n := range bonds {
 		bn := ifaceName(n, 0)
@@ -136,7 +136,7 @@ func writeIfcfg(root string, cfg model.NetConfig) error {
 		return err
 	}
 	_ = os.WriteFile(filepath.Join(root, "etc/sysconfig/network"), []byte("NETWORKING=yes\nNOZEROCONF=yes\n"), 0644)
-	eths, bonds, vlans := classifyNICs(cfg)
+	eths, bonds, vlans := planNICs(cfg)
 	bondOf := map[string]string{}
 	for _, n := range bonds {
 		bn := ifaceName(n, 0)

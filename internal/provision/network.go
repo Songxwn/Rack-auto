@@ -14,6 +14,20 @@ import (
 func ApplyNetwork(root string, cfg model.NetConfig, backend string) error {
 	_ = os.MkdirAll(filepath.Join(root, "etc/cloud/cloud.cfg.d"), 0o755)
 	_ = os.WriteFile(filepath.Join(root, "etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"), []byte("network: {config: disabled}\n"), 0644)
+	if matches, err := filepath.Glob(filepath.Join(root, "etc/netplan/*cloud-init*")); err == nil {
+		for _, p := range matches {
+			_ = os.Remove(p)
+		}
+	}
+	if matches, err := filepath.Glob(filepath.Join(root, "etc/NetworkManager/system-connections/*cloud-init*")); err == nil {
+		for _, p := range matches {
+			_ = os.Remove(p)
+		}
+	}
+	eths, _, _ := planNICs(cfg)
+	if err := writePersistentNet(root, eths); err != nil {
+		return err
+	}
 	switch backend {
 	case osprofile.Ifupdown:
 		_ = os.MkdirAll(filepath.Join(root, "etc/network"), 0o755)
@@ -37,7 +51,7 @@ func ApplyNetwork(root string, cfg model.NetConfig, backend string) error {
 }
 
 func Netplan(cfg model.NetConfig) string {
-	eths, bonds, vlans := classifyNICs(cfg)
+	eths, bonds, vlans := planNICs(cfg)
 	var b strings.Builder
 	b.WriteString("network:\n  version: 2\n  renderer: networkd\n")
 	if len(eths) == 0 && len(bonds) == 0 && len(vlans) == 0 {
@@ -115,7 +129,7 @@ func writeNetplanIface(b *strings.Builder, n model.NICConfig, i int, pad string)
 }
 
 func Ifupdown(cfg model.NetConfig) string {
-	eths, bonds, vlans := classifyNICs(cfg)
+	eths, bonds, vlans := planNICs(cfg)
 	var b strings.Builder
 	b.WriteString("auto lo\niface lo inet loopback\n\n")
 	if len(eths) == 0 && len(bonds) == 0 && len(vlans) == 0 {
@@ -184,6 +198,101 @@ func writeIfupdownIface(b *strings.Builder, n model.NICConfig, i int, bondMaster
 		fmt.Fprintf(b, "  vlan-raw-device %s\n", parent)
 	}
 	b.WriteString("\n")
+}
+
+// planNICs remaps physical NICs that have a MAC onto stable names nic0, nic1, …
+// so the installed OS does not inherit RAMOS (Ubuntu live) interface names.
+func planNICs(cfg model.NetConfig) (eths, bonds, vlans []model.NICConfig) {
+	eths, bonds, vlans = classifyNICs(cfg)
+	alias := map[string]string{}
+	macIdx := 0
+	for i := range eths {
+		orig := strings.TrimSpace(eths[i].Name)
+		logical := orig
+		if strings.TrimSpace(eths[i].MAC) != "" {
+			logical = fmt.Sprintf("nic%d", macIdx)
+			macIdx++
+		}
+		if logical == "" {
+			logical = fmt.Sprintf("nic%d", macIdx)
+			macIdx++
+		}
+		eths[i].Name = logical
+		if orig != "" {
+			alias[orig] = logical
+		}
+		alias[logical] = logical
+	}
+	for i := range bonds {
+		orig := strings.TrimSpace(bonds[i].Name)
+		if orig == "" {
+			orig = "bond0"
+		}
+		bonds[i].Name = orig
+		alias[orig] = orig
+		for j, m := range bonds[i].BondMembers {
+			m = strings.TrimSpace(m)
+			if mapped, ok := alias[m]; ok {
+				bonds[i].BondMembers[j] = mapped
+			}
+		}
+	}
+	for i := range vlans {
+		origParent := strings.TrimSpace(vlans[i].Parent)
+		parent := origParent
+		if mapped, ok := alias[origParent]; ok {
+			parent = mapped
+		}
+		if parent == "" {
+			parent = "eth0"
+		}
+		vlans[i].Parent = parent
+		origName := strings.TrimSpace(vlans[i].Name)
+		autoOld := ""
+		if origParent != "" && vlans[i].VLANID > 0 {
+			autoOld = fmt.Sprintf("%s.%d", origParent, vlans[i].VLANID)
+		}
+		if origName == "" || origName == autoOld {
+			vlans[i].Name = fmt.Sprintf("%s.%d", parent, vlans[i].VLANID)
+		}
+		if origName != "" {
+			alias[origName] = vlans[i].Name
+		}
+		alias[vlans[i].Name] = vlans[i].Name
+	}
+	return
+}
+
+func writePersistentNet(root string, eths []model.NICConfig) error {
+	var rules strings.Builder
+	rules.WriteString("# rackauto: name NICs by MAC so the installed OS does not use RAMOS names\n")
+	wrote := 0
+	for _, nic := range eths {
+		mac := strings.ToLower(strings.TrimSpace(nic.MAC))
+		name := strings.TrimSpace(nic.Name)
+		if mac == "" || name == "" {
+			continue
+		}
+		if wrote == 0 {
+			if err := os.MkdirAll(filepath.Join(root, "etc/systemd/network"), 0o755); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(root, "etc/udev/rules.d"), 0o755); err != nil {
+				return err
+			}
+		}
+		body := fmt.Sprintf("[Match]\nMACAddress=%s\n\n[Link]\nName=%s\nNamePolicy=\nAlternativeNamesPolicy=\n", mac, name)
+		p := filepath.Join(root, "etc/systemd/network", "10-rackauto-"+name+".link")
+		if err := os.WriteFile(p, []byte(body), 0644); err != nil {
+			return err
+		}
+		fmt.Fprintf(&rules, `SUBSYSTEM=="net", ACTION=="add", ATTR{address}=="%s", NAME="%s"`+"\n", mac, name)
+		wrote++
+	}
+	if wrote == 0 {
+		return nil
+	}
+	return os.WriteFile(filepath.Join(root, "etc/udev/rules.d/70-rackauto-net.rules"), []byte(rules.String()), 0644)
 }
 
 func classifyNICs(cfg model.NetConfig) (eths, bonds, vlans []model.NICConfig) {

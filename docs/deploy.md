@@ -416,7 +416,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 1. 选择机器和镜像，选固件与时区
 2. 登录用户默认 `root`（也可改成 ubuntu/debian 等发行版用户），填密码；公钥可「添加」或「导入 .pub 文件」
-3. 从机器上报的库存里选择目标磁盘和网卡。根文件系统镜像可在分区表里增删分区（勾选「使用剩余空间」）；整盘云镜像会保留镜像自带分区，并在写盘后把根分区扩到整盘。网卡可选 DHCP / 静态，也可添加 Bond 和 VLAN（VLAN 可以建在 Bond 上）。
+3. 从机器上报的库存里选择目标磁盘和网卡。根文件系统镜像可在分区表里增删分区（勾选「使用剩余空间」）；整盘云镜像会保留镜像自带分区，并在写盘后把根分区扩到整盘。网卡可选 DHCP / 静态，也可添加 Bond 和 VLAN（VLAN 可以建在 Bond 上）。物理网卡按 **MAC** 写入，装完后名字是 `nic0` / `nic1`，不沿用 RAMOS（Ubuntu live）里的 `ens3` / `enp1s0`。
 
 有 BMC 可在最后一步点「同时 BMC PXE 重启」。到「任务」看进度和日志。成功后机器会切回本地磁盘重启。
 
@@ -596,6 +596,9 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 **镜像要选系统和版本**  
 Debian 12 和 Ubuntu 24.04 写网卡的方式不同（ifupdown / netplan），Rocky 8 和 9 也不一样（ifcfg / NetworkManager）。登记或上传时选对系统和版本，装机才会写入对应配置。Bond 和 VLAN（含 Bond 上的 VLAN）在装机向导第 3 步添加。
+
+**装完后网卡没地址 / 配置不生效**  
+RAMOS 是 Ubuntu live，网卡名常是 `ens3` / `enp1s0`；Debian、Rocky 装完后往往是另一套名字。v0.4.18 起按 MAC 绑定并改名为 `nic0`、`nic1`。请换新的 `rackauto` 和 `rackauto-agent` 后重新 PXE 再装。
 
 **`go build` 失败 / undefined: nfcSparseValues / 找不到 bin/rackauto**  
 生产环境请用 Release，不要编译。若一定要编：

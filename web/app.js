@@ -872,7 +872,7 @@ function renderNicRow(n, i, invNics, allNics) {
       <div><label>地址获取</label>${methodSel}</div>
     </div>
     <div class="full" style="margin-top:8px"><label>成员网卡</label>
-      <div class="member-list">${invNics.length ? invNics.map(x => `<label><input type="checkbox" class="n-member" value="${escapeHtml(x.name)}" ${members.includes(x.name) ? "checked" : ""}> ${escapeHtml(x.name)}</label>`).join("") : `<span class="hint">机器尚未上报网卡</span>`}</div>
+      <div class="member-list">${invNics.length ? invNics.map(x => `<label><input type="checkbox" class="n-member" value="${escapeHtml(x.name)}" ${members.includes(x.name) ? "checked" : ""}> ${escapeHtml(x.name)}${x.mac ? " · " + escapeHtml(x.mac) : ""}</label>`).join("") : `<span class="hint">机器尚未上报网卡</span>`}</div>
     </div>
     ${staticBox}`;
   } else if (kind === "vlan") {
@@ -1051,7 +1051,7 @@ function renderInstall() {
         </div>
       </div>
       <div id="in-nics-box">${(d.nics.length ? d.nics : [blankNic()]).map((n, i) => renderNicRow(n, i, nics, d.nics)).join("")}</div>
-      <p class="hint">${nics.length ? "物理网卡、Bond、VLAN 可组合：例如 eth0+eth1 做 bond0，再在 bond0 上建 VLAN。" : "尚未上报网卡时默认 DHCP。Bond 上也可再配 VLAN。"} 网卡配置按镜像的系统版本写入（Ubuntu netplan / Debian ifupdown / Rocky NetworkManager）。</p>
+      <p class="hint">${nics.length ? "物理网卡按 MAC 绑定，装完后改名为 nic0 / nic1，不沿用 RAMOS 里的 ens* / eth*。" : "尚未上报网卡时默认 DHCP。"} 可组合 Bond 和 VLAN（VLAN 可建在 Bond 上）。配置按镜像系统和版本写入（Ubuntu netplan / Debian ifupdown / Rocky NetworkManager）。</p>
     `;
 
   view.innerHTML = `

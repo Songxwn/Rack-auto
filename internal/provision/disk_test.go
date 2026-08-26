@@ -45,7 +45,10 @@ func TestNetplanStatic(t *testing.T) {
 		MAC: "aa:bb:cc:dd:ee:ff", Name: "eth0", Method: "static",
 		Address: "10.0.0.20/24", Gateway: "10.0.0.1", DNS: []string{"8.8.8.8"},
 	}}})
-	for _, s := range []string{"macaddress", "10.0.0.20/24", "10.0.0.1", "8.8.8.8"} {
+	if strings.Contains(out, "eth0:") {
+		t.Fatalf("must not keep RAMOS name: %s", out)
+	}
+	for _, s := range []string{"nic0:", "set-name: nic0", "macaddress", "10.0.0.20/24", "10.0.0.1", "8.8.8.8"} {
 		if !strings.Contains(out, s) {
 			t.Fatalf("missing %s in %s", s, out)
 		}
@@ -73,6 +76,69 @@ func TestIfupdownBondVLAN(t *testing.T) {
 		if !strings.Contains(out, s) {
 			t.Fatalf("missing %q in %s", s, out)
 		}
+	}
+}
+
+func TestPlanNICByMAC(t *testing.T) {
+	cfg := model.NetConfig{NICs: []model.NICConfig{
+		{Name: "ens18", MAC: "aa:bb:cc:00:00:01", Method: "none"},
+		{Name: "ens19", MAC: "aa:bb:cc:00:00:02", Method: "none"},
+		{Kind: model.NICBond, Name: "bond0", BondMembers: []string{"ens18", "ens19"}, Method: "none"},
+		{Kind: model.NICVLAN, Parent: "bond0", VLANID: 80, Name: "bond0.80", Method: "static", Address: "192.168.80.10/24"},
+	}}
+	out := provision.Netplan(cfg)
+	if strings.Contains(out, "ens18") || strings.Contains(out, "ens19") {
+		t.Fatalf("must not use RAMOS names: %s", out)
+	}
+	for _, s := range []string{"nic0:", "nic1:", "set-name: nic0", "interfaces: [nic0, nic1]", "link: bond0", "bond0.80:"} {
+		if !strings.Contains(out, s) {
+			t.Fatalf("missing %q in %s", s, out)
+		}
+	}
+	vlan := provision.Netplan(model.NetConfig{NICs: []model.NICConfig{
+		{Name: "ens3", MAC: "aa:bb:cc:00:00:03", Method: "none"},
+		{Kind: model.NICVLAN, Parent: "ens3", VLANID: 100, Name: "ens3.100", Method: "dhcp"},
+	}})
+	if strings.Contains(vlan, "ens3") {
+		t.Fatalf("vlan must not keep RAMOS name: %s", vlan)
+	}
+	for _, s := range []string{"nic0:", "nic0.100:", "link: nic0"} {
+		if !strings.Contains(vlan, s) {
+			t.Fatalf("missing %q in %s", s, vlan)
+		}
+	}
+	root := t.TempDir()
+	if err := provision.ApplyNetwork(root, cfg, "netplan"); err != nil {
+		t.Fatal(err)
+	}
+	link, err := os.ReadFile(filepath.Join(root, "etc/systemd/network/10-rackauto-nic0.link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(link), "MACAddress=aa:bb:cc:00:00:01") || !strings.Contains(string(link), "Name=nic0") {
+		t.Fatalf("link: %s", link)
+	}
+	rules, err := os.ReadFile(filepath.Join(root, "etc/udev/rules.d/70-rackauto-net.rules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rules), `ATTR{address}=="aa:bb:cc:00:00:01"`) || !strings.Contains(string(rules), `NAME="nic0"`) {
+		t.Fatalf("udev: %s", rules)
+	}
+	nmRoot := t.TempDir()
+	if err := provision.ApplyNetwork(nmRoot, cfg, "nm"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(nmRoot, "etc/NetworkManager/system-connections/nic0.nmconnection"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if strings.Contains(text, "ens18") {
+		t.Fatalf("nm still has RAMOS name: %s", text)
+	}
+	if !strings.Contains(text, "mac-address=") || !strings.Contains(text, "interface-name=nic0") {
+		t.Fatalf("nm nic0: %s", text)
 	}
 }
 
