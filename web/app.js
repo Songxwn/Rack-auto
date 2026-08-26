@@ -352,19 +352,19 @@ function renderImages() {
         <h3>登记镜像 URL</h3>
         <label>名称</label><input id="i-name" placeholder="Ubuntu 24.04 cloud">
         <div class="row3">
-          ${osSelectHTML("ubuntu", "24.04")}
-          <div><label>类型</label><select id="i-kind">
-            <option value="cloud-disk">云镜像（整盘 qcow2/raw）</option>
-            <option value="cloud-root">根文件系统镜像</option>
-            <option value="raw-disk">整盘 raw</option>
-          </select></div>
+          ${osSelectHTML("ubuntu", "24.04", "i")}
+          ${imageKindHTML("i-kind")}
         </div>
         <label>URL</label><input id="i-url" placeholder="https://...img 或 http://本平台/images/...">
         <div class="row"><div><label>SHA256</label><input id="i-sum"></div><div><label></label><button class="primary" id="i-add">登记</button></div></div>
       </div>
       <div class="panel">
         <h3>上传到控制面</h3>
-        <p class="hint">大文件建议用 URL 登记。上传到本机后会检测分区表和 UEFI/BIOS 引导。</p>
+        <p class="hint">大文件建议用 URL 登记。上传前请选好系统和版本，传到本机后会检测分区表和 UEFI/BIOS 引导。</p>
+        <div class="row3">
+          ${osSelectHTML("ubuntu", "24.04", "u")}
+          ${imageKindHTML("u-kind")}
+        </div>
         <input type="file" id="i-file">
         <div id="i-file-meta" class="hint mono"></div>
         <div id="i-progress" class="upload-progress hidden">
@@ -419,13 +419,14 @@ function renderImages() {
     const fileEl = $("#i-file");
     btn.disabled = true;
     if (fileEl) fileEl.disabled = true;
+    ["u-os", "u-osver", "u-kind"].forEach(id => { const el = $("#" + id); if (el) el.disabled = true; });
     btn.textContent = "上传中…";
     try {
       await uploadControlPlaneImage(f, {
         name: f.name,
-        kind: $("#i-kind").value,
-        os_family: $("#i-os").value,
-        os_version: $("#i-osver").value,
+        kind: $("#u-kind").value,
+        os_family: $("#u-os").value,
+        os_version: $("#u-osver").value,
       });
       await load();
       render();
@@ -433,6 +434,7 @@ function renderImages() {
       setUploadProgress({ loaded: 0, total: f.size, speed: 0, phase: "error", error: e.message });
       btn.disabled = false;
       if (fileEl) fileEl.disabled = false;
+      ["u-os", "u-osver", "u-kind"].forEach(id => { const el = $("#" + id); if (el) el.disabled = false; });
       btn.textContent = "上传";
       alert(e.message);
     }
@@ -452,15 +454,17 @@ function renderImages() {
     await api("/images/" + id, { method: "DELETE" });
     await load(); render();
   };
-  wireOsSelects();
+  wireOsSelects("i");
+  wireOsSelects("u");
 }
 
-function wireOsSelects() {
-  const os = $("#i-os");
+function wireOsSelects(prefix) {
+  const p = prefix || "i";
+  const os = $("#" + p + "-os");
   if (!os) return;
   os.onchange = () => {
     const d = osDistro(os.value);
-    const ver = $("#i-osver");
+    const ver = $("#" + p + "-osver");
     if (!ver || !d) return;
     ver.innerHTML = (d.versions || []).map(v => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label)}</option>`).join("");
     if (d.versions && d.versions.length) ver.value = d.versions[d.versions.length - 1].id;
@@ -537,16 +541,29 @@ function osLabel(img) {
   if (v && v.id && v.id !== "generic") return d.label + " " + v.label;
   return d.label;
 }
-function osSelectHTML(family, version) {
+function osSelectHTML(family, version, prefix) {
   const cats = osCatalog();
   const fam = family || "ubuntu";
   const d = osDistro(fam);
   const ver = version || (d && d.versions[d.versions.length - 1].id) || "";
+  const p = prefix || "i";
   return `<div><label>系统</label>
-    <select id="i-os">${cats.map(x => `<option value="${escapeHtml(x.family)}" ${x.family === fam ? "selected" : ""}>${escapeHtml(x.label)}</option>`).join("")}</select>
+    <select id="${p}-os">${cats.map(x => `<option value="${escapeHtml(x.family)}" ${x.family === fam ? "selected" : ""}>${escapeHtml(x.label)}</option>`).join("")}</select>
   </div>
   <div><label>版本</label>
-    <select id="i-osver">${(d.versions || []).map(v => `<option value="${escapeHtml(v.id)}" ${v.id === ver ? "selected" : ""}>${escapeHtml(v.label)}</option>`).join("")}</select>
+    <select id="${p}-osver">${(d.versions || []).map(v => `<option value="${escapeHtml(v.id)}" ${v.id === ver ? "selected" : ""}>${escapeHtml(v.label)}</option>`).join("")}</select>
+  </div>`;
+}
+
+function imageKindHTML(id, selected) {
+  const cur = selected || "cloud-disk";
+  const kinds = [
+    ["cloud-disk", "云镜像（整盘 qcow2/raw）"],
+    ["cloud-root", "根文件系统镜像"],
+    ["raw-disk", "整盘 raw"],
+  ];
+  return `<div><label>类型</label>
+    <select id="${escapeHtml(id)}">${kinds.map(([v, lab]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${lab}</option>`).join("")}</select>
   </div>`;
 }
 
