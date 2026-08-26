@@ -105,7 +105,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/agent/job", s.auth(s.agentJob))
 	mux.HandleFunc("POST /api/v1/agent/jobs/{id}/log", s.auth(s.agentLog))
 	mux.HandleFunc("POST /api/v1/agent/jobs/{id}/progress", s.auth(s.agentProgress))
+	mux.HandleFunc("GET /api/v1/agent/jobs/{id}/progress", s.auth(s.agentProgress))
 	mux.HandleFunc("POST /api/v1/agent/jobs/{id}/complete", s.auth(s.agentComplete))
+	mux.HandleFunc("GET /api/v1/agent/jobs/{id}/complete", s.auth(s.agentComplete))
 	mux.HandleFunc("GET /api/v1/agent/speedtest", s.auth(s.speedDownload))
 	mux.HandleFunc("POST /api/v1/agent/speedtest", s.auth(s.speedUpload))
 
@@ -1255,7 +1257,10 @@ func (s *Server) agentProgress(w http.ResponseWriter, r *http.Request) {
 		Progress int    `json:"progress"`
 		Message  string `json:"message"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if r.Method == http.MethodGet {
+		in.Progress, _ = strconv.Atoi(r.URL.Query().Get("progress"))
+		in.Message = r.URL.Query().Get("message")
+	} else if err := readJSON(r, &in); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -1285,7 +1290,11 @@ func (s *Server) agentComplete(w http.ResponseWriter, r *http.Request) {
 		Message string `json:"message"`
 		Result  any    `json:"result"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	if r.Method == http.MethodGet {
+		ok := strings.ToLower(r.URL.Query().Get("ok"))
+		in.OK = ok == "1" || ok == "true" || ok == "yes"
+		in.Message = r.URL.Query().Get("message")
+	} else if err := readJSON(r, &in); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}

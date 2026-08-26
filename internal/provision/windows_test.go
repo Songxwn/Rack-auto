@@ -113,4 +113,7 @@ func TestUnattendAndDiskpart(t *testing.T) {
 	if strings.Contains(media.Install, `X:\diskpart.txt`) {
 		t.Fatal("install.cmd must use System32 diskpart.txt, not X:\\")
 	}
+	if !strings.Contains(media.Install, "certutil.exe") || !strings.Contains(media.Install, ":httpget") {
+		t.Fatal("WinPE has no curl by default; install.cmd must fall back to certutil")
+	}
 }
