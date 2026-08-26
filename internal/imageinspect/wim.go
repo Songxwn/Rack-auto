@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -159,37 +161,44 @@ func readWIMExtent(r io.ReaderAt, offset, limit int64) (WIMExtent, error) {
 }
 
 func readWIMImages(r io.ReaderAt, base int64, h wimHdr) []model.WIMImage {
-	if h.XML.Orig <= 0 || h.XML.Orig > 16<<20 {
+	n := h.XML.Orig
+	if n <= 0 {
+		n = h.XML.Size
+	}
+	off := h.XML.Offset
+	if off <= 0 {
+		off = int64(h.HeaderSize)
+	}
+	if n <= 0 || n > 16<<20 {
 		return nil
 	}
-	if h.XML.Flags&wimResCompressed != 0 {
+	if h.XML.Flags&wimResCompressed != 0 && h.XML.Orig > 0 && h.XML.Size > 0 && h.XML.Orig != h.XML.Size {
 		return nil
 	}
-	buf := make([]byte, int(h.XML.Orig))
-	if _, err := r.ReadAt(buf, base+h.XML.Offset); err != nil && err != io.EOF {
+	buf := make([]byte, int(n))
+	got, err := r.ReadAt(buf, base+off)
+	if got == 0 {
 		return nil
 	}
-	text := decodeWIMXML(buf)
-	if text == "" {
-		return nil
-	}
-	return parseWIMXML(text)
+	_ = err
+	return parseWIMXML(decodeWIMXML(buf[:got]))
 }
 
 func decodeWIMXML(b []byte) string {
-	b = bytes.TrimRight(b, "\x00")
-	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
-		u := bytesToUTF16LE(b[2:])
-		return string(utf16.Decode(u))
+	// Do not TrimRight NUL bytes first: UTF-16LE ASCII ends with 0x00 for the
+	// last BMP character (often '>'), and stripping it drops that rune.
+	var s string
+	switch {
+	case len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE:
+		s = string(utf16.Decode(bytesToUTF16LE(b[2:])))
+	case len(b) >= 2 && b[0] == 0xFE && b[1] == 0xFF:
+		s = string(utf16.Decode(bytesToUTF16BE(b[2:])))
+	case looksUTF16LE(b):
+		s = string(utf16.Decode(bytesToUTF16LE(b)))
+	default:
+		s = string(b)
 	}
-	if len(b) >= 2 && b[0] == 0xFE && b[1] == 0xFF {
-		u := bytesToUTF16BE(b[2:])
-		return string(utf16.Decode(u))
-	}
-	if looksUTF16LE(b) {
-		return string(utf16.Decode(bytesToUTF16LE(b)))
-	}
-	return string(b)
+	return strings.TrimRight(s, "\x00")
 }
 
 func bytesToUTF16LE(b []byte) []uint16 {
@@ -247,32 +256,73 @@ type wimXMLImage struct {
 }
 
 func parseWIMXML(text string) []model.WIMImage {
+	text = strings.ReplaceAll(text, "\x00", "")
 	start := strings.Index(strings.ToUpper(text), "<WIM")
 	if start >= 0 {
 		text = text[start:]
 	}
 	var root wimXMLRoot
-	if err := xml.Unmarshal([]byte(text), &root); err != nil {
-		return nil
-	}
-	var out []model.WIMImage
-	for _, im := range root.Images {
-		arch := wimArch(im.Windows.Arch)
-		name := strings.TrimSpace(im.Name)
-		if name == "" {
-			name = strings.TrimSpace(im.Windows.DisplayName)
+	if err := xml.Unmarshal([]byte(text), &root); err == nil && len(root.Images) > 0 {
+		var out []model.WIMImage
+		for _, im := range root.Images {
+			name := strings.TrimSpace(im.Name)
+			if name == "" {
+				name = strings.TrimSpace(im.Windows.DisplayName)
+			}
+			if name == "" {
+				name = strings.TrimSpace(im.Windows.ProductName)
+			}
+			out = append(out, model.WIMImage{
+				Index:       im.Index,
+				Name:        name,
+				Description: strings.TrimSpace(im.Description),
+				Flags:       strings.TrimSpace(im.Flags),
+				Edition:     strings.TrimSpace(im.Windows.Edition),
+				Arch:        wimArch(im.Windows.Arch),
+				SizeB:       im.TotalBytes,
+			})
 		}
+		return out
+	}
+	return parseWIMXMLLoose(text)
+}
+
+var (
+	reWIMImage = regexp.MustCompile(`(?is)<IMAGE\b([^>]*)>(.*?)</IMAGE>`)
+	reWIMIndex = regexp.MustCompile(`(?i)\bINDEX="(\d+)"`)
+)
+
+func wimXMLTag(body, tag string) string {
+	re := regexp.MustCompile(`(?is)<` + tag + `>([^<]*)</` + tag + `>`)
+	m := re.FindStringSubmatch(body)
+	if len(m) > 1 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+func parseWIMXMLLoose(text string) []model.WIMImage {
+	var out []model.WIMImage
+	for i, m := range reWIMImage.FindAllStringSubmatch(text, -1) {
+		attrs, body := m[1], m[2]
+		idx := i + 1
+		if am := reWIMIndex.FindStringSubmatch(attrs); len(am) > 1 {
+			if n, err := strconv.Atoi(am[1]); err == nil {
+				idx = n
+			}
+		}
+		name := wimXMLTag(body, "NAME")
 		if name == "" {
-			name = strings.TrimSpace(im.Windows.ProductName)
+			name = wimXMLTag(body, "DISPLAYNAME")
 		}
 		out = append(out, model.WIMImage{
-			Index:       im.Index,
+			Index:       idx,
 			Name:        name,
-			Description: strings.TrimSpace(im.Description),
-			Flags:       strings.TrimSpace(im.Flags),
-			Edition:     strings.TrimSpace(im.Windows.Edition),
-			Arch:        arch,
-			SizeB:       im.TotalBytes,
+			Description: wimXMLTag(body, "DESCRIPTION"),
+			Flags:       wimXMLTag(body, "FLAGS"),
+			Edition:     wimXMLTag(body, "EDITIONID"),
+			Arch:        wimArch(wimXMLTag(body, "ARCH")),
+			SizeB:       0,
 		})
 	}
 	return out
