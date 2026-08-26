@@ -139,11 +139,29 @@ func DiskpartScript(firmware string, diskNum int) string {
 }
 
 func StartnetCMD() string {
-	return "@echo off\r\nwpeinit\r\nif exist X:\\install.cmd call X:\\install.cmd\r\nif exist install.cmd call install.cmd\r\n"
+	return "@echo off\r\n" +
+		"wpeinit\r\n" +
+		"wpeutil WaitForNetwork >nul 2>nul\r\n" +
+		"ping -n 4 127.0.0.1 >nul\r\n" +
+		"cd /d X:\\\r\n" +
+		"if exist X:\\install.cmd goto run\r\n" +
+		"if exist \\install.cmd goto runroot\r\n" +
+		"echo RACKAUTO: install.cmd missing\r\n" +
+		"pause\r\n" +
+		"goto :eof\r\n" +
+		":run\r\n" +
+		"call X:\\install.cmd\r\n" +
+		"goto after\r\n" +
+		":runroot\r\n" +
+		"call \\install.cmd\r\n" +
+		":after\r\n" +
+		"pause\r\n"
 }
 
 func WinpeshlINI() string {
-	return "[LaunchApps]\r\n%SYSTEMDRIVE%\\Windows\\System32\\wpeinit.exe\r\nX:\\install.cmd\r\n"
+	// Must overlay Windows/System32/winpeshl.ini. The ISO boot.wim file at
+	// that path launches setup.exe, which reboots when it cannot find media.
+	return "[LaunchApps]\r\n%SYSTEMDRIVE%\\Windows\\System32\\startnet.cmd\r\n"
 }
 
 type WindowsMedia struct {
@@ -203,6 +221,7 @@ func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL stri
 	fmt.Fprintf(&b, "set PROGRESS=%s\r\n", batEscape(progressURL))
 	fmt.Fprintf(&b, "set COMPLETE=%s\r\n", batEscape(completeURL))
 	b.WriteString("cd /d X:\\\r\n")
+	b.WriteString("call :report 5 winpe_started\r\n")
 	b.WriteString("call :report 8 partitioning\r\n")
 	b.WriteString("diskpart /s X:\\diskpart.txt\r\n")
 	b.WriteString("if errorlevel 1 goto fail\r\n")

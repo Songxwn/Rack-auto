@@ -104,7 +104,10 @@ func TestUnattendAndDiskpart(t *testing.T) {
 	if !strings.Contains(media.Install, "/Index:2") {
 		t.Fatal(media.Install)
 	}
-	if !strings.Contains(media.Winpeshl, "wpeinit.exe") {
+	if !strings.Contains(media.Winpeshl, "startnet.cmd") {
 		t.Fatal(media.Winpeshl)
+	}
+	if !strings.Contains(media.Startnet, "WaitForNetwork") {
+		t.Fatal(media.Startnet)
 	}
 }

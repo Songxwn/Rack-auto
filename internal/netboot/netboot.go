@@ -308,9 +308,9 @@ exit
 	return fmt.Sprintf(`#!ipxe
 echo Rack-auto Windows PE job %s
 set base %s
-kernel ${base}/winpe/wimboot
+kernel ${base}/winpe/wimboot index=1
 initrd ${base}/images/%s boot.wim
-initrd ${base}/ipxe/windows/%s/winpeshl.ini winpeshl.ini
+initrd ${base}/ipxe/windows/%s/winpeshl.ini Windows/System32/winpeshl.ini
 initrd ${base}/ipxe/windows/%s/startnet.cmd Windows/System32/startnet.cmd
 initrd ${base}/ipxe/windows/%s/diskpart.txt diskpart.txt
 initrd ${base}/ipxe/windows/%s/install.cmd install.cmd

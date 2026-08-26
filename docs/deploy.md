@@ -890,6 +890,9 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 **Windows 装机进了 Ubuntu RAMOS**  
 该 MAC 没有 pending/running 的 Windows 任务，或控制面还是旧版本。确认任务还在「等待 PXE 进入 Windows PE」，并升级到带 WinPE 的 Release 后再 PXE。
 
+**Windows PE 一进就重启**  
+官方 ISO 的 `boot.wim` 会启动 Windows 安装程序；找不到光盘就会立刻重启。请用 **v0.4.31+** 的 `rackauto`（不必重跑 bootstrap），任务仍在等待 WinPE 时再 PXE 一次。成功时任务日志里应很快出现 `winpe_started`，而不是回到 PXE。
+
 **Windows PE 起来了但 install.wim 下不下来**  
 `public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 里的 curl 走 HTTP 拉 `/images/win/<id>/install.wim`。装机网必须有 DHCP（静态 IP 只在装完后生效）。
 
