@@ -310,12 +310,12 @@ echo Rack-auto Windows PE job %s
 set base %s
 kernel ${base}/winpe/wimboot index=1
 initrd ${base}/images/%s boot.wim
-initrd ${base}/ipxe/windows/%s/winpeshl.ini Windows/System32/winpeshl.ini
-initrd ${base}/ipxe/windows/%s/startnet.cmd Windows/System32/startnet.cmd
-initrd ${base}/ipxe/windows/%s/diskpart.txt diskpart.txt
-initrd ${base}/ipxe/windows/%s/install.cmd install.cmd
-initrd ${base}/ipxe/windows/%s/complete.json complete.json
-initrd ${base}/ipxe/windows/%s/fail.json fail.json
+initrd --name winpeshl.ini ${base}/ipxe/windows/%s/winpeshl.ini winpeshl.ini
+initrd --name startnet.cmd ${base}/ipxe/windows/%s/startnet.cmd startnet.cmd
+initrd --name diskpart.txt ${base}/ipxe/windows/%s/diskpart.txt diskpart.txt
+initrd --name install.cmd ${base}/ipxe/windows/%s/install.cmd install.cmd
+initrd --name complete.json ${base}/ipxe/windows/%s/complete.json complete.json
+initrd --name fail.json ${base}/ipxe/windows/%s/fail.json fail.json
 boot
 `, job.ID, base, boot, mac, mac, mac, mac, mac, mac)
 }

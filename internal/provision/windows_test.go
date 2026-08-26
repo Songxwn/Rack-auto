@@ -107,7 +107,10 @@ func TestUnattendAndDiskpart(t *testing.T) {
 	if !strings.Contains(media.Winpeshl, "startnet.cmd") {
 		t.Fatal(media.Winpeshl)
 	}
-	if !strings.Contains(media.Startnet, "WaitForNetwork") {
+	if !strings.Contains(media.Startnet, "WaitForNetwork") || !strings.Contains(media.Startnet, `%~dp0install.cmd`) {
 		t.Fatal(media.Startnet)
+	}
+	if strings.Contains(media.Install, `X:\diskpart.txt`) {
+		t.Fatal("install.cmd must use System32 diskpart.txt, not X:\\")
 	}
 }

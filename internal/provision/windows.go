@@ -143,25 +143,21 @@ func StartnetCMD() string {
 		"wpeinit\r\n" +
 		"wpeutil WaitForNetwork >nul 2>nul\r\n" +
 		"ping -n 4 127.0.0.1 >nul\r\n" +
-		"cd /d X:\\\r\n" +
-		"if exist X:\\install.cmd goto run\r\n" +
-		"if exist \\install.cmd goto runroot\r\n" +
-		"echo RACKAUTO: install.cmd missing\r\n" +
+		"cd /d \"%~dp0\"\r\n" +
+		"if exist \"%~dp0install.cmd\" goto run\r\n" +
+		"if exist install.cmd goto run\r\n" +
+		"echo RACKAUTO: install.cmd missing in %CD%\r\n" +
+		"dir\r\n" +
 		"pause\r\n" +
 		"goto :eof\r\n" +
 		":run\r\n" +
-		"call X:\\install.cmd\r\n" +
-		"goto after\r\n" +
-		":runroot\r\n" +
-		"call \\install.cmd\r\n" +
-		":after\r\n" +
+		"call \"%~dp0install.cmd\"\r\n" +
 		"pause\r\n"
 }
 
 func WinpeshlINI() string {
-	// Must overlay Windows/System32/winpeshl.ini. The ISO boot.wim file at
-	// that path launches setup.exe, which reboots when it cannot find media.
-	return "[LaunchApps]\r\n%SYSTEMDRIVE%\\Windows\\System32\\startnet.cmd\r\n"
+	// wimboot injects files into X:\Windows\System32 by basename only.
+	return "[LaunchApps]\r\n%SYSTEMROOT%\\System32\\startnet.cmd\r\n"
 }
 
 type WindowsMedia struct {
@@ -220,10 +216,11 @@ func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL stri
 	fmt.Fprintf(&b, "set UNATTEND=%s\r\n", batEscape(unattendURL))
 	fmt.Fprintf(&b, "set PROGRESS=%s\r\n", batEscape(progressURL))
 	fmt.Fprintf(&b, "set COMPLETE=%s\r\n", batEscape(completeURL))
-	b.WriteString("cd /d X:\\\r\n")
+	b.WriteString("cd /d \"%~dp0\"\r\n")
+	b.WriteString("if not exist diskpart.txt cd /d %SYSTEMROOT%\\System32\r\n")
 	b.WriteString("call :report 5 winpe_started\r\n")
 	b.WriteString("call :report 8 partitioning\r\n")
-	b.WriteString("diskpart /s X:\\diskpart.txt\r\n")
+	b.WriteString("diskpart /s diskpart.txt\r\n")
 	b.WriteString("if errorlevel 1 goto fail\r\n")
 	b.WriteString("if not exist W:\\ nul goto fail\r\n")
 	b.WriteString("call :report 20 downloading_wim\r\n")
@@ -242,19 +239,19 @@ func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL stri
 	b.WriteString("curl.exe -fL --retry 8 --retry-delay 2 -o W:\\Windows\\Panther\\unattend.xml \"%UNATTEND%\"\r\n")
 	b.WriteString("if exist W:\\install.wim del /f /q W:\\install.wim\r\n")
 	b.WriteString("call :report 95 applied\r\n")
-	b.WriteString("curl.exe -fL --retry 5 --retry-delay 2 -H \"X-API-Token: %TOKEN%\" -H \"Content-Type: application/json\" --data-binary @X:\\complete.json \"%COMPLETE%\"\r\n")
+	b.WriteString("curl.exe -fL --retry 5 --retry-delay 2 -H \"X-API-Token: %TOKEN%\" -H \"Content-Type: application/json\" --data-binary @complete.json \"%COMPLETE%\"\r\n")
 	if reboot {
 		b.WriteString("wpeutil reboot\r\n")
 	}
 	b.WriteString("goto :eof\r\n")
 	b.WriteString(":report\r\n")
-	b.WriteString(">X:\\p.json echo {\"progress\":%1,\"message\":\"%~2\"}\r\n")
-	b.WriteString("curl.exe -fL -H \"X-API-Token: %TOKEN%\" -H \"Content-Type: application/json\" --data-binary @X:\\p.json \"%PROGRESS%\" >nul 2>nul\r\n")
+	b.WriteString(">p.json echo {\"progress\":%1,\"message\":\"%~2\"}\r\n")
+	b.WriteString("curl.exe -fL -H \"X-API-Token: %TOKEN%\" -H \"Content-Type: application/json\" --data-binary @p.json \"%PROGRESS%\" >nul 2>nul\r\n")
 	b.WriteString("echo %~2\r\n")
 	b.WriteString("exit /b 0\r\n")
 	b.WriteString(":fail\r\n")
 	b.WriteString("echo INSTALL FAILED\r\n")
-	b.WriteString("curl.exe -fL -H \"X-API-Token: %TOKEN%\" -H \"Content-Type: application/json\" --data-binary @X:\\fail.json \"%COMPLETE%\" >nul 2>nul\r\n")
+	b.WriteString("curl.exe -fL -H \"X-API-Token: %TOKEN%\" -H \"Content-Type: application/json\" --data-binary @fail.json \"%COMPLETE%\" >nul 2>nul\r\n")
 	b.WriteString("pause\r\n")
 	b.WriteString("exit /b 1\r\n")
 	return b.String()

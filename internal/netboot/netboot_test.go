@@ -55,11 +55,14 @@ func TestWindowsPEScript(t *testing.T) {
 	if !strings.Contains(out, "/ipxe/windows/aa:bb:cc:dd:ee:ff/install.cmd") {
 		t.Fatalf("%s", out)
 	}
-	if !strings.Contains(out, "Windows/System32/winpeshl.ini") {
-		t.Fatalf("winpeshl must overlay System32, not WIM root: %s", out)
+	if !strings.Contains(out, "--name startnet.cmd") || !strings.Contains(out, "startnet.cmd startnet.cmd") {
+		t.Fatalf("startnet.cmd must be injected as a System32 basename: %s", out)
 	}
-	if strings.Contains(out, "winpeshl.ini winpeshl.ini") {
-		t.Fatalf("winpeshl.ini was left at WIM root: %s", out)
+	if !strings.Contains(out, "--name winpeshl.ini") || !strings.Contains(out, "winpeshl.ini winpeshl.ini") {
+		t.Fatalf("winpeshl.ini must be injected as a System32 basename: %s", out)
+	}
+	if strings.Contains(out, "Windows/System32/") {
+		t.Fatalf("wimboot cannot inject subdirectories: %s", out)
 	}
 	if !strings.Contains(out, "wimboot index=1") {
 		t.Fatalf("expected PE image index: %s", out)
