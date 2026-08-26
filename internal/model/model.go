@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -34,9 +35,11 @@ const (
 	JobFailed    = "failed"
 	JobCancelled = "cancelled"
 
-	ImageCloudDisk = "cloud-disk"
-	ImageCloudRoot = "cloud-root"
-	ImageRawDisk   = "raw-disk"
+	ImageCloudDisk   = "cloud-disk"
+	ImageCloudRoot   = "cloud-root"
+	ImageRawDisk     = "raw-disk"
+	ImageWindowsISO  = "windows-iso"
+	ImageWindowsWIM  = "windows-wim"
 
 	NICEthernet = "ethernet"
 	NICBond     = "bond"
@@ -186,7 +189,24 @@ type ImageInspect struct {
 	Message      string            `json:"message,omitempty"`
 	Warnings     []string           `json:"warnings,omitempty"`
 	Partitions   []InspectPartition `json:"partitions,omitempty"`
+	Windows      bool               `json:"windows,omitempty"`
+	WIMImages    []WIMImage         `json:"wim_images,omitempty"`
+	BootWIM      string             `json:"boot_wim,omitempty"`
+	InstallWIM   string             `json:"install_wim,omitempty"`
+	InstallFrom  string             `json:"install_from,omitempty"`
+	InstallOff   int64              `json:"install_offset,omitempty"`
+	InstallSize  int64              `json:"install_size,omitempty"`
 	InspectedAt  time.Time          `json:"inspected_at"`
+}
+
+type WIMImage struct {
+	Index       int    `json:"index"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Flags       string `json:"flags,omitempty"`
+	Edition     string `json:"edition,omitempty"`
+	Arch        string `json:"arch,omitempty"`
+	SizeB       int64  `json:"size_b,omitempty"`
 }
 
 type InspectPartition struct {
@@ -197,12 +217,33 @@ type InspectPartition struct {
 	StartB int64  `json:"start_b"`
 }
 
+func IsWindowsKind(kind string) bool {
+	return kind == ImageWindowsISO || kind == ImageWindowsWIM
+}
+
+func (img Image) IsWindows() bool {
+	if IsWindowsKind(img.Kind) {
+		return true
+	}
+	if img.Inspect != nil && img.Inspect.Windows {
+		return true
+	}
+	f := strings.ToLower(strings.TrimSpace(img.OSFamily))
+	return f == "windows" || strings.HasPrefix(f, "windows")
+}
+
 func (in *ImageInspect) Compatible(kind, firmware string) error {
 	if in == nil || in.Status == "" || in.Status == "skipped" {
 		return nil
 	}
 	if in.Status == "error" {
 		return fmt.Errorf("image inspect failed: %s", in.Message)
+	}
+	if IsWindowsKind(kind) || in.Windows {
+		if in.Windows && len(in.WIMImages) == 0 && in.Status == "ok" {
+			return fmt.Errorf("Windows image has no WIM editions; re-inspect or upload install.wim")
+		}
+		return nil
 	}
 	whole := kind == ImageCloudDisk || kind == ImageRawDisk
 	if whole {
@@ -261,6 +302,9 @@ type InstallSpec struct {
 	Partitions []Partition `json:"partitions"`
 	Network    NetConfig   `json:"network"`
 	Reboot     bool        `json:"reboot"`
+	WIMIndex   int         `json:"wim_index,omitempty"`
+	ProductKey string      `json:"product_key,omitempty"`
+	EnableRDP  bool        `json:"enable_rdp"`
 }
 
 type Partition struct {
@@ -403,4 +447,14 @@ type AgentJob struct {
 	Type   string `json:"type"`
 	Params any    `json:"params"`
 	Image  *Image `json:"image,omitempty"`
+}
+
+func ParseInstallSpec(v any) (InstallSpec, error) {
+	var spec InstallSpec
+	b, err := json.Marshal(v)
+	if err != nil {
+		return spec, err
+	}
+	err = json.Unmarshal(b, &spec)
+	return spec, err
 }

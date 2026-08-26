@@ -86,7 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/images/upload", s.webAuth(s.uploadImage))
 	mux.HandleFunc("POST /api/v1/images/{id}/inspect", s.webAuth(s.inspectImage))
 	mux.HandleFunc("DELETE /api/v1/images/{id}", s.webAuth(s.deleteImage))
-	mux.Handle("/images/", http.StripPrefix("/images/", http.FileServer(http.Dir(s.Cfg.ImagesDir()))))
+	mux.Handle("/images/", s.imagesHTTP())
 
 	mux.HandleFunc("GET /api/v1/templates", s.webAuth(s.listTemplates))
 	mux.HandleFunc("POST /api/v1/templates", s.webAuth(s.createTemplate))
@@ -115,6 +115,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /ipxe/cidata/{mac}/user-data", s.cidataUserData)
 	mux.HandleFunc("GET /ipxe/cidata/{mac}/meta-data", s.cidataMetaData)
 	mux.HandleFunc("GET /ipxe/cidata/{mac}/vendor-data", s.cidataVendorData)
+	mux.HandleFunc("GET /ipxe/windows/{mac}/{name}", s.serveWindowsIpxeFile)
+	mux.HandleFunc("GET /winpe/wimboot", s.serveWimboot)
 
 	mux.Handle("/boot/agent/", http.StripPrefix("/boot/agent/", http.FileServer(http.Dir(s.Cfg.AgentDir()))))
 	mux.Handle("/ramos/", http.StripPrefix("/ramos/", http.FileServer(http.Dir(s.Cfg.RAMOSDir()))))
@@ -123,7 +125,7 @@ func (s *Server) Handler() http.Handler {
 	sub, _ := fs.Sub(web.FS, ".")
 	fileSrv := http.FileServer(http.FS(sub))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ipxe/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ipxe/") || strings.HasPrefix(r.URL.Path, "/winpe/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -145,7 +147,7 @@ func withLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ipxe/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ipxe/") || strings.HasPrefix(r.URL.Path, "/winpe/") {
 			log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start).Truncate(time.Millisecond))
 		}
 	})
@@ -596,7 +598,11 @@ func (s *Server) createImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if img.Kind == "" {
-		img.Kind = model.ImageCloudDisk
+		if osprofile.IsWindows(img.OSFamily) {
+			img.Kind = model.ImageWindowsISO
+		} else {
+			img.Kind = model.ImageCloudDisk
+		}
 	}
 	img.OSFamily = osprofile.CanonicalFamily(img.OSFamily)
 	if img.OSVersion == "" {
@@ -650,7 +656,11 @@ func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 		SizeB:    n,
 	}
 	if img.Kind == "" {
-		img.Kind = model.ImageCloudDisk
+		if osprofile.IsWindows(img.OSFamily) {
+			img.Kind = model.ImageWindowsISO
+		} else {
+			img.Kind = model.ImageCloudDisk
+		}
 	}
 	img.OSFamily = osprofile.CanonicalFamily(img.OSFamily)
 	if img.OSVersion == "" {
@@ -694,6 +704,10 @@ func (s *Server) fillImageInspect(img *model.Image) {
 		}
 	}
 	img.Inspect = imageinspect.File(path)
+	s.coerceWindowsImage(img)
+	if img.Inspect != nil && img.Inspect.Windows {
+		s.materializeWindows(img, path)
+	}
 }
 
 func (s *Server) imageFile(img model.Image) (string, error) {
@@ -718,11 +732,13 @@ func (s *Server) imageFile(img model.Image) (string, error) {
 }
 
 func (s *Server) deleteImage(w http.ResponseWriter, r *http.Request) {
-	img, err := s.Store.GetImage(r.PathValue("id"))
+	id := r.PathValue("id")
+	img, err := s.Store.GetImage(id)
 	if err == nil && img.Filename != "" {
 		_ = os.Remove(filepath.Join(s.Cfg.ImagesDir(), img.Filename))
 	}
-	if err := s.Store.DeleteImage(r.PathValue("id")); err != nil {
+	s.removeWindowsPayload(id)
+	if err := s.Store.DeleteImage(id); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -919,6 +935,64 @@ func (s *Server) createInstall(w http.ResponseWriter, r *http.Request) {
 		fw = model.FirmwareUEFI
 	}
 	spec.Firmware = fw
+	if img.IsWindows() {
+		if strings.TrimSpace(spec.Password) == "" {
+			http.Error(w, "Windows Server requires a password", 400)
+			return
+		}
+		if err := img.Inspect.Compatible(img.Kind, fw); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if !windowsBootWIMExists(s.Cfg.ImagesDir(), img.ID, img) {
+			http.Error(w, "WinPE boot.wim missing; upload a Windows Server ISO (windows-iso) of the same generation", 400)
+			return
+		}
+		spec.Partitions = nil
+		spec.SSHKeys = nil
+		spec.Hostname = provision.WindowsHostname(spec.Hostname)
+		if spec.Hostname == "WIN-HOST" && m.Name != "" {
+			spec.Hostname = provision.WindowsHostname(m.Name)
+		}
+		if spec.Username == "" {
+			spec.Username = "Administrator"
+		}
+		if spec.WIMIndex <= 0 && img.Inspect != nil {
+			spec.WIMIndex = provision.DefaultWIMIndex(img.Inspect.WIMImages)
+		}
+		if spec.WIMIndex <= 0 {
+			spec.WIMIndex = 1
+		}
+		spec.EnableRDP = true
+		if spec.Timezone == "" {
+			spec.Timezone = "Asia/Shanghai"
+		}
+		for i := range spec.Network.NICs {
+			if spec.Network.NICs[i].MAC == "" && m.MAC != "" {
+				spec.Network.NICs[i].MAC = m.MAC
+			}
+		}
+		if spec.Hostname == "" {
+			spec.Hostname = provision.WindowsHostname(m.Name)
+		}
+		job := model.Job{
+			Type:      model.JobInstall,
+			MachineID: m.ID,
+			ImageID:   spec.ImageID,
+			Status:    model.JobPending,
+			Params:    spec.InstallSpec,
+			Message:   "等待 PXE 进入 Windows PE",
+		}
+		if err := s.Store.InsertJob(&job); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		_ = s.Store.SetMachineStatus(m.ID, model.MachineInstalling)
+		_ = s.Store.SetBootMode(m.ID, model.BootRAM)
+		s.Store.AddEvent("info", "创建 Windows 装机任务 "+job.ID+" → "+m.Name, m.ID)
+		writeJSON(w, 201, store.RedactJob(job))
+		return
+	}
 	whole := img.Kind == model.ImageCloudDisk || img.Kind == model.ImageRawDisk
 	if err := img.Inspect.Compatible(img.Kind, fw); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -1119,6 +1193,12 @@ func (s *Server) agentJob(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"job": nil})
 		return
 	}
+	if j.ImageID != "" {
+		if img, err := s.Store.GetImage(j.ImageID); err == nil && img.IsWindows() {
+			writeJSON(w, 200, map[string]any{"job": nil})
+			return
+		}
+	}
 	now := time.Now().UTC()
 	j.Status = model.JobRunning
 	j.StartedAt = &now
@@ -1162,6 +1242,13 @@ func (s *Server) agentProgress(w http.ResponseWriter, r *http.Request) {
 	j.Progress = in.Progress
 	if in.Message != "" {
 		j.Message = in.Message
+	}
+	if j.Status == model.JobPending {
+		j.Status = model.JobRunning
+		if j.StartedAt == nil {
+			now := time.Now().UTC()
+			j.StartedAt = &now
+		}
 	}
 	_ = s.Store.UpdateJob(j)
 	w.WriteHeader(204)

@@ -18,3 +18,13 @@ func TestInstallIPXEOffline(t *testing.T) {
 		}
 	}
 }
+
+func TestReadWimboot(t *testing.T) {
+	b, err := ReadWimboot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) < 1024 || b[0] != 'M' || b[1] != 'Z' {
+		t.Fatalf("wimboot magic len=%d", len(b))
+	}
+}

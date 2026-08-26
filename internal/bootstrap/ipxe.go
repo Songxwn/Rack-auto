@@ -30,3 +30,14 @@ func InstallIPXE(tftpDir string) error {
 	}
 	return nil
 }
+
+func ReadWimboot() ([]byte, error) {
+	b, err := embedded.FS.ReadFile("wimboot")
+	if err != nil {
+		return nil, fmt.Errorf("embedded wimboot: %w", err)
+	}
+	if len(b) < 1024 {
+		return nil, fmt.Errorf("embedded wimboot is truncated")
+	}
+	return b, nil
+}

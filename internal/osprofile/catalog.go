@@ -7,6 +7,7 @@ const (
 	Ifupdown = "ifupdown"
 	NM       = "nm"
 	Ifcfg    = "ifcfg"
+	Windows  = "windows"
 )
 
 type Version struct {
@@ -49,6 +50,11 @@ func Catalog() []Distro {
 			{ID: "7", Label: "7", DefaultUser: "root", RootFS: "ext4", NetBackend: Ifcfg},
 			{ID: "9", Label: "Stream 9", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
 		}},
+		{Family: "windows", Label: "Windows Server", Versions: []Version{
+			{ID: "2019", Label: "2019", DefaultUser: "Administrator", RootFS: "ntfs", NetBackend: Windows},
+			{ID: "2022", Label: "2022", DefaultUser: "Administrator", RootFS: "ntfs", NetBackend: Windows},
+			{ID: "2025", Label: "2025", DefaultUser: "Administrator", RootFS: "ntfs", NetBackend: Windows},
+		}},
 		{Family: "custom", Label: "自定义", Versions: []Version{
 			{ID: "generic", Label: "generic", DefaultUser: "root", RootFS: "ext4", NetBackend: Netplan},
 		}},
@@ -64,11 +70,17 @@ func CanonicalFamily(s string) string {
 		return "rocky"
 	case "centos stream":
 		return "centos"
+	case "windows server", "windowsserver", "win-server", "winserver":
+		return "windows"
 	case "":
 		return "ubuntu"
 	default:
 		return s
 	}
+}
+
+func IsWindows(family string) bool {
+	return CanonicalFamily(family) == "windows"
 }
 
 func Lookup(family, version string) Version {

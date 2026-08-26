@@ -45,12 +45,12 @@ func File(path string) *model.ImageInspect {
 		out.Message = err.Error()
 		return out
 	}
-	hdr := make([]byte, 4)
+	hdr := make([]byte, 8)
 	_, _ = f.ReadAt(hdr, 0)
 	var r io.ReaderAt = f
 	size := st.Size()
 	format := "raw"
-	if string(hdr) == "QFI\xfb" {
+	if string(hdr[:4]) == "QFI\xfb" {
 		img, err := qcow2reader.OpenWithType(f, qcow2.Type)
 		if err != nil {
 			out.Message = "open qcow2: " + err.Error()
@@ -64,6 +64,12 @@ func File(path string) *model.ImageInspect {
 		r = img
 		size = img.Size()
 		format = "qcow2"
+	} else if string(hdr) == wimMagic {
+		got := inspectWIMFile(size, f)
+		got.InspectedAt = time.Now().UTC()
+		return got
+	} else if win := inspectWindowsISO(size, f); win != nil {
+		return win
 	}
 	return Inspect(disk{r: r, size: size}, format)
 }

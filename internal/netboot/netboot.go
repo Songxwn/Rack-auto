@@ -42,6 +42,56 @@ func (v *StoreView) MachineByMAC(mac string) (model.Machine, error) {
 	return v.S.GetMachineByMAC(mac)
 }
 
+func (v *StoreView) WindowsInstall(mac string) (job model.Job, img model.Image, spec model.InstallSpec, ok bool) {
+	if v == nil || v.S == nil {
+		return
+	}
+	m, err := v.MachineByMAC(mac)
+	if err != nil {
+		return
+	}
+	jobs, err := v.S.ListJobs(m.ID, 40)
+	if err != nil {
+		return
+	}
+	var pending, running model.Job
+	var pendingImg, runningImg model.Image
+	var haveP, haveR bool
+	for _, j := range jobs {
+		if j.Type != model.JobInstall {
+			continue
+		}
+		if j.Status != model.JobPending && j.Status != model.JobRunning {
+			continue
+		}
+		if j.ImageID == "" {
+			continue
+		}
+		im, err := v.S.GetImage(j.ImageID)
+		if err != nil || !im.IsWindows() {
+			continue
+		}
+		if j.Status == model.JobPending {
+			if !haveP || j.CreatedAt.Before(pending.CreatedAt) {
+				pending, pendingImg, haveP = j, im, true
+			}
+			continue
+		}
+		if !haveR || j.CreatedAt.After(running.CreatedAt) {
+			running, runningImg, haveR = j, im, true
+		}
+	}
+	if haveP {
+		spec, _ = model.ParseInstallSpec(pending.Params)
+		return pending, pendingImg, spec, true
+	}
+	if haveR {
+		spec, _ = model.ParseInstallSpec(running.Params)
+		return running, runningImg, spec, true
+	}
+	return
+}
+
 func New(cfg config.Config, st *store.Store) *Service {
 	s := &Service{Cfg: cfg, Store: &StoreView{S: st}, dhcpCfg: cfg.DHCP}
 	s.dhcpCfg.Normalize()
@@ -214,6 +264,11 @@ echo Rack-auto: boot from local disk
 sanboot --no-describe --drive 0x80 || exit
 `
 	}
+	if s.Store != nil {
+		if job, img, spec, ok := s.Store.WindowsInstall(mac); ok {
+			return s.windowsPEScript(base, mac, arch, job, img, spec)
+		}
+	}
 	archDir := ArchDir(arch)
 	rel := s.Cfg.Bootstrap.UbuntuRelease
 	if rel == "" {
@@ -232,6 +287,38 @@ kernel ${base}/ramos/ubuntu/%s/vmlinuz initrd=initrd boot=casper ip=dhcp iso-url
 initrd ${base}/ramos/ubuntu/%s/initrd
 boot
 `, rel, firmware, archDir, base, archDir, archDir, layer, token, archDir)
+}
+
+func (s *Service) windowsPEScript(base, mac, arch string, job model.Job, img model.Image, spec model.InstallSpec) string {
+	_ = spec
+	if ArchDir(arch) != "x86_64" {
+		return `#!ipxe
+echo Rack-auto: Windows Server netboot requires x86_64
+sleep 10
+exit
+`
+	}
+	boot := "win/" + img.ID + "/boot.wim"
+	if img.Inspect != nil && img.Inspect.BootWIM != "" {
+		boot = img.Inspect.BootWIM
+		if !strings.HasPrefix(boot, "win/") {
+			boot = "win/" + img.ID + "/boot.wim"
+		}
+	}
+	return fmt.Sprintf(`#!ipxe
+echo Rack-auto Windows PE job %s
+set base %s
+kernel ${base}/winpe/wimboot
+initrd ${base}/images/%s boot.wim
+initrd ${base}/ipxe/windows/%s/winpeshl.ini winpeshl.ini
+initrd ${base}/ipxe/windows/%s/startnet.cmd Windows/System32/startnet.cmd
+initrd ${base}/ipxe/windows/%s/diskpart.txt diskpart.txt
+initrd ${base}/ipxe/windows/%s/install.cmd install.cmd
+initrd ${base}/ipxe/windows/%s/complete.json complete.json
+initrd ${base}/ipxe/windows/%s/fail.json fail.json
+boot
+`, job.ID, base, boot, mac, mac, mac, mac, mac, mac)
+}
 }
 
 func (s *Service) layerFSPath(archDir string) string {

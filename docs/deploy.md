@@ -2,7 +2,7 @@
 
 这份教程按「第一次把机器装起来」来写。你可以先扫一遍目录，再按自己的环境跳到对应章节。
 
-做完之后，你应该能：在浏览器打开控制台 → 服务器 PXE 进内存系统（RAMOS）→ 下发镜像装机。
+做完之后，你应该能：在浏览器打开控制台 → 服务器 PXE 进 RAMOS 装 Linux，或进 Windows PE 装 Windows Server → 下发镜像装机。
 
 ## 目录
 
@@ -16,6 +16,7 @@
 8. [启动服务](#8-启动服务)
 9. [配置 DHCP](#9-配置-dhcp)
 10. [第一次装机](#10-第一次装机)
+    - [Windows Server 2019–2025](#105-windows-server-2019-2025)
 11. [自己用 KVM 做装机镜像](#11-自己用-kvm-做装机镜像)
 12. [用 systemd 长期跑](#12-用-systemd-长期跑)
 13. [升级控制面（下载二进制覆盖）](#13-升级控制面下载二进制覆盖)
@@ -34,9 +35,11 @@
     → DHCP 告诉它：TFTP 在哪、引导文件叫什么
     → TFTP 下载 undionly.kpxe（传统 BIOS）或 ipxe.efi（UEFI）
     → iPXE 再通过 HTTP 找控制面：/ipxe/boot.ipxe
-    → 进入 RAMOS（内存里的 Ubuntu live-server + Agent）
-    → 控制面下发「装哪个镜像、分区、用户、SSH 公钥、网卡」
-    → Agent 写盘，写完切回本地磁盘重启
+    → 若该 MAC 有 Windows 装机任务：wimboot 加载 WinPE（boot.wim）
+         → diskpart 分区 → 把 install.wim 下到磁盘 → DISM Apply-Image → bcdboot
+    → 否则进入 RAMOS（内存里的 Ubuntu live-server + Agent）
+         → 控制面下发「装哪个镜像、分区、用户、SSH 公钥、网卡」
+         → Agent 写盘，写完切回本地磁盘重启
 ```
 
 所以控制面要同时提供三样东西：**HTTP（Web + iPXE + API）**、**TFTP**、以及一台能应答 PXE 的 **DHCP**（内置或你现有的均可）。
@@ -406,6 +409,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
   `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`  
   类型选「云镜像（整盘 qcow2/raw）」
 - **上传文件**：先在上传栏选系统和版本、镜像类型，再选文件。页面会显示进度、速率和剩余时间；传到控制面后会检测分区表和引导。
+- **Windows Server 2019–2025**：类型选「Windows Server ISO」，上传官方 ISO。装机链路与 Linux 完全不同，见 [10.5](#105-windows-server-2019-2025)。
 - **自己做镜像**：要用 KVM 装一套再导出 qcow2 时，按 [第 11 节](#11-自己用-kvm-做装机镜像)。BIOS 与 UEFI 各做一张；分区、cloud-init、OpenSSH、扩容工具都必须按那一节的要求。
 
 系统和版本决定装机时怎么写网卡（Ubuntu/Debian 13 用 netplan，Debian 11/12 用 ifupdown，Rocky/Alma 8 用 ifcfg，Rocky/Alma 9+ 用 NetworkManager），以及默认根文件系统（RHEL 系多为 xfs）。装完会把根分区扩到磁盘剩余空间。
@@ -429,6 +433,48 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 ```bash
 ./rackauto-agent --url http://10.0.0.50:8080 --token <api_token>
 ```
+
+### 10.5 Windows Server 2019–2025
+
+Windows Server **不能**走 RAMOS / qcow2 / cloud-init。下发任务后，该机器下次 PXE 会加载内置的 **wimboot** 和 ISO 里的 **WinPE `boot.wim`**，在 Windows PE 里用 `diskpart` + `DISM /Apply-Image` + `bcdboot` 装系统，再用 `unattend.xml` 写管理员密码、主机名、时区和可选静态 IP。
+
+**准备镜像**
+
+1. 「镜像」页系统选 **Windows Server**，版本 2019 / 2022 / 2025。
+2. 类型选 **Windows Server ISO**，把微软官方 ISO **上传到控制面**（不要只填外网 URL：控制面必须能抽出 `sources/boot.wim`）。`install.wim` 常常大于 4GB、在 UDF 里，控制面按 WIM 头定位后由 WinPE 直接 HTTP 下载，不必再复制一份到磁盘。
+3. 点「检测」：应看到 WIM 版本列表（Standard / Datacenter，Core 或带桌面）。
+4. 也可以先传一张同代 ISO 抽出 WinPE，再单独登记 `install.wim` / `install.esd`（类型 **Windows install.wim / ESD**）；没有 `boot.wim` 时会尝试借用已有 ISO 抽出的 WinPE。
+
+只支持 **x86_64**。2019 及更新的 WinPE 自带 `curl.exe`，这是能报进度的前提。
+
+**向导差异**
+
+- 登录用户默认 `Administrator`，**密码必填**（写入应答文件）。没有 SSH 公钥。
+- 第 3 步选 WIM edition（默认偏向 Standard 带桌面，而不是 Core）、可选产品密钥、目标磁盘、DHCP 或静态 IP。
+- **不要**画 Linux 分区，也 **不要** 配 Bond / VLAN。
+- 主机名最长 15 个 ASCII 字符。时区 `Asia/Shanghai` 会写成 `China Standard Time`。应答文件语言保持 **en-US**，避免英文 ISO 被强行 zh-CN 后安装器卡住。
+- 默认打开远程桌面。
+
+**磁盘号**
+
+WinPE 的 `diskpart` 用 **磁盘序号**，不是 Linux 的 `/dev/sda`。向导里若仍显示 Agent 上报的 `/dev/sda`，会按 `sda→0`、`sdb→1`、`nvme0n1→0` 来映射。没把握时选「磁盘 0」。选错会清错盘。
+
+**装机过程中**
+
+1. 下发任务后状态是「等待 PXE 进入 Windows PE」。不要让这台机器再进 Ubuntu RAMOS。
+2. 机器 PXE 后屏幕应出现 Windows PE，而不是 Ubuntu。任务进度：partitioning → downloading_wim → applying_image → bootloader。
+3. `install.wim` 会下到 Windows 分区（W:），不要指望塞进 WinPE 的内存盘 X:。5GB+ 的 WIM 需要装机网带宽和磁盘空间。
+4. 应用完成后会写 BCD、拷贝 unattend 到 `\Windows\Panther\`，再 `wpeutil reboot`。第一次进系统走 OOBE 无人值守。
+5. WinPE 下载阶段需要 **DHCP**；装完后的静态 IP 在 unattend 里按 MAC 生效。
+
+评估版 ISO 可以不填产品密钥。VL / OEM 密钥按你的授权填写。
+
+**不要做的事**
+
+- 不要把 Windows ISO 当成「云镜像 qcow2」登记。
+- 不要用 Linux Agent 去写 Windows 盘；领到 Windows 任务时 Agent 会拒绝。
+- 不要用 Windows 10/11 客户端 ISO 当 Server（检测会警告没有 Server edition）。
+- 本轮不做 sysprep VHDX、ARM64 Windows、拆分的 `install.swm`。
 
 ---
 
@@ -840,3 +886,15 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 
 **误把内置 DHCP 开到办公网**  
 立刻在「网络引导」点「停止 DHCP」，并在交换机上确认没有别人拿错地址。生产环境优先沿用现有 DHCP。
+
+**Windows 装机进了 Ubuntu RAMOS**  
+该 MAC 没有 pending/running 的 Windows 任务，或控制面还是旧版本。确认任务还在「等待 PXE 进入 Windows PE」，并升级到带 WinPE 的 Release 后再 PXE。
+
+**Windows PE 起来了但 install.wim 下不下来**  
+`public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 里的 curl 走 HTTP 拉 `/images/win/<id>/install.wim`。装机网必须有 DHCP（静态 IP 只在装完后生效）。
+
+**Windows 装完进不了系统 / 停在 bootmgr**  
+向导固件必须和机器一致（UEFI 用 GPT + EFI 分区，BIOS 用 MBR）。看任务是否已经 `bcdboot` 成功。Secure Boot 一般可开（官方 ISO 的 WinPE/Windows 有签名）；若定制 boot.wim 被破坏则先关 Secure Boot。
+
+**检测不到 WIM 版本 / 没有 boot.wim**  
+把完整官方 ISO 传到控制面再点「检测」。只传 `install.wim` 时，需要同代 Windows Server ISO 先抽出过 `boot.wim`。`install.wim` >4GB 是正常的，不必先用 7z 手工解包。

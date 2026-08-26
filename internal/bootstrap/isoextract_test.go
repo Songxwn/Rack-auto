@@ -21,6 +21,10 @@ func TestExtractISOFiles(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	off, sz, err := ISOFileLocation(iso, "casper/vmlinuz")
+	if err != nil || sz != int64(len("kernel-bytes-here")) || off <= 0 {
+		t.Fatalf("location off=%d sz=%d err=%v", off, sz, err)
+	}
 	got, _ := os.ReadFile(vmlinuz)
 	if string(got) != "kernel-bytes-here" {
 		t.Fatalf("vmlinuz %q", got)

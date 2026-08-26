@@ -2,7 +2,7 @@
 
 把机房里的裸金属，从「按开机键」变成「在网页里点一下」。
 
-服务器 PXE 网络启动 → 内存里跑一套 RAMOS（Ubuntu live-server + Agent）→ 控制面下发镜像、账号、分区和网卡 → 需要时再用 IPMI / Redfish 开关机。传统 BIOS 和 UEFI 都支持。
+服务器 PXE 网络启动 → 内存里跑一套 RAMOS（Ubuntu live-server + Agent）装 Linux，或进入 Windows PE 装 Windows Server 2019–2025 → 控制面下发镜像、账号、分区和网卡 → 需要时再用 IPMI / Redfish 开关机。传统 BIOS 和 UEFI 都支持。
 
 [![ci](https://github.com/Songxwn/Rack-auto/actions/workflows/ci.yml/badge.svg)](https://github.com/Songxwn/Rack-auto/actions/workflows/ci.yml)
 [最新版本](https://github.com/Songxwn/Rack-auto/releases/latest)
@@ -18,14 +18,11 @@
 ```
 DHCP / TFTP  ──►  iPXE（BIOS：undionly.kpxe  /  UEFI：ipxe.efi）
                        │
-                       ▼
-              RAMOS（内存 Ubuntu + Agent）
-                       │  HTTP
+                       ├── Linux ──► RAMOS（内存 Ubuntu + Agent）──► 写 qcow2 / cloud-init
+                       └── Windows Server ──► WinPE（wimboot + boot.wim）──► DISM / bcdboot
+                       │
                        ▼
            Rack-auto 控制面（Web + SQLite）
-                       │
-                       ├── 下发装机 / 压测
-                       └── IPMI / Redfish → 开机、关机、指定引导
 ```
 
 ## 五分钟上手
@@ -117,7 +114,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 - **实验室空网段：** 打开「网络引导」，选中连交换机的**接入网卡**，启用内置 DHCP，点保存并应用。同一二层不要再开别的 DHCP。
 - **机房已有 DHCP：** 不要开内置。把 `next-server` 指到控制面；BIOS 用 `undionly.kpxe`，UEFI 用 `ipxe.efi`。页面底部有可复制的 dhcpd / dnsmasq 片段。
 
-接着在「机器」里登记 BMC（或让服务器 PXE 一次自动报到），在「镜像」登记 cloud 镜像 URL 或上传自己用 KVM 导出的 qcow2（[怎么做镜像](docs/deploy.md#11-自己用-kvm-做装机镜像)），到「装机」填用户和 SSH 公钥后下发。逐步点击说明在 [第一次装机](docs/deploy.md#10-第一次装机)。
+接着在「机器」里登记 BMC（或让服务器 PXE 一次自动报到），在「镜像」登记 cloud 镜像 URL 或上传自己用 KVM 导出的 qcow2（[怎么做镜像](docs/deploy.md#11-自己用-kvm-做装机镜像)），Windows Server 则上传官方 ISO（[Windows Server 装机](docs/deploy.md#105-windows-server-2019-2025)），到「装机」填用户后下发。逐步点击说明在 [第一次装机](docs/deploy.md#10-第一次装机)。
 
 ## 常用配置
 
@@ -161,6 +158,8 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | POST | `/api/v1/dhcp/apply` | 保存并应用 DHCP（含接入网卡） |
 | POST | `/api/v1/dhcp/stop` | 停止内置 DHCP |
 | GET | `/ipxe/boot.ipxe` | iPXE 入口 |
+| GET | `/winpe/wimboot` | Windows PE 加载器（无需登录） |
+| GET | `/ipxe/windows/{mac}/...` | WinPE 脚本 / unattend（无需登录） |
 
 ## 开发
 

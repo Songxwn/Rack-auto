@@ -3,6 +3,8 @@ package netboot
 import (
 	"strings"
 	"testing"
+
+	"github.com/Songxwn/Rack-auto/internal/model"
 )
 
 func TestNormalizeMAC(t *testing.T) {
@@ -41,6 +43,21 @@ func TestScriptContainsKernel(t *testing.T) {
 	}
 	if strings.Contains(out, "vmlinuz-lts") || strings.Contains(out, "alpine") {
 		t.Fatalf("still alpine: %s", out)
+	}
+}
+
+func TestWindowsPEScript(t *testing.T) {
+	s := &Service{}
+	out := s.windowsPEScript("http://10.0.0.1:8080", "aa:bb:cc:dd:ee:ff", "x86_64", model.Job{ID: "job1"}, model.Image{ID: "img1"}, model.InstallSpec{})
+	if !strings.Contains(out, "/winpe/wimboot") || !strings.Contains(out, "images/win/img1/boot.wim") {
+		t.Fatalf("%s", out)
+	}
+	if !strings.Contains(out, "/ipxe/windows/aa:bb:cc:dd:ee:ff/install.cmd") {
+		t.Fatalf("%s", out)
+	}
+	arm := s.windowsPEScript("http://10.0.0.1:8080", "aa:bb:cc:dd:ee:ff", "arm64", model.Job{ID: "job1"}, model.Image{ID: "img1"}, model.InstallSpec{})
+	if !strings.Contains(arm, "x86_64") {
+		t.Fatalf("%s", arm)
 	}
 }
 

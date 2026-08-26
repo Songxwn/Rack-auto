@@ -441,7 +441,7 @@ function renderImages() {
       </div>
       <div class="panel">
         <h3>上传到控制面</h3>
-        <p class="hint">大文件建议用 URL 登记。上传前请选好系统和版本，传到本机后会检测分区表和 UEFI/BIOS 引导。</p>
+        <p class="hint">大文件建议用 URL 登记。上传前请选好系统和版本，传到本机后会检测分区表和 UEFI/BIOS 引导。Windows Server 请选「Windows Server ISO」并上传官方 ISO（会抽出 WinPE 的 boot.wim）。</p>
         <div class="row3">
           ${osSelectHTML("ubuntu", "24.04", "u")}
           ${imageKindHTML("u-kind")}
@@ -549,6 +549,8 @@ function wireOsSelects(prefix) {
     if (!ver || !d) return;
     ver.innerHTML = (d.versions || []).map(v => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label)}</option>`).join("");
     if (d.versions && d.versions.length) ver.value = d.versions[d.versions.length - 1].id;
+    const kind = $("#" + p + "-kind");
+    if (kind && os.value === "windows") kind.value = "windows-iso";
   };
 }
 
@@ -576,6 +578,11 @@ const OS_CATALOG = [
   { family: "centos", label: "CentOS", versions: [
     { id: "7", label: "7", default_user: "root", root_fs: "ext4", net_backend: "ifcfg" },
     { id: "9", label: "Stream 9", default_user: "root", root_fs: "xfs", net_backend: "nm" },
+  ]},
+  { family: "windows", label: "Windows Server", versions: [
+    { id: "2019", label: "2019", default_user: "Administrator", root_fs: "ntfs", net_backend: "windows" },
+    { id: "2022", label: "2022", default_user: "Administrator", root_fs: "ntfs", net_backend: "windows" },
+    { id: "2025", label: "2025", default_user: "Administrator", root_fs: "ntfs", net_backend: "windows" },
   ]},
   { family: "custom", label: "自定义", versions: [
     { id: "generic", label: "generic", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
@@ -642,6 +649,8 @@ function imageKindHTML(id, selected) {
     ["cloud-disk", "云镜像（整盘 qcow2/raw）"],
     ["cloud-root", "根文件系统镜像"],
     ["raw-disk", "整盘 raw"],
+    ["windows-iso", "Windows Server ISO"],
+    ["windows-wim", "Windows install.wim / ESD"],
   ];
   return `<div><label>类型</label>
     <select id="${escapeHtml(id)}">${kinds.map(([v, lab]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${lab}</option>`).join("")}</select>
@@ -669,7 +678,7 @@ function blankInstallDraft() {
     step: 1, machine_id: "", image_id: "", hostname: "", username: "root",
     password: "", timezone: "Asia/Shanghai", firmware: "uefi", disk: "", reboot: true,
     ssh_keys: [""], partitions: defaultParts("uefi", "ubuntu", "24.04"), nics: [blankNic()],
-    account_tpl: "", key_tpl: "",
+    account_tpl: "", key_tpl: "", wim_index: 0, product_key: "",
   };
 }
 
@@ -898,6 +907,32 @@ function machineNics(m) {
 function isWholeDiskImage(img) {
   return img && (img.kind === "cloud-disk" || img.kind === "raw-disk");
 }
+function isWindowsImage(img) {
+  if (!img) return false;
+  if (img.kind === "windows-iso" || img.kind === "windows-wim") return true;
+  if (img.inspect && img.inspect.windows) return true;
+  const f = String(img.os_family || "").toLowerCase();
+  return f === "windows" || f.startsWith("windows");
+}
+function wimImages(img) {
+  return (img && img.inspect && img.inspect.wim_images) || [];
+}
+function defaultWIMIndex(img) {
+  const list = wimImages(img);
+  if (!list.length) return 1;
+  const score = im => {
+    const n = ((im.name || "") + " " + (im.flags || "") + " " + (im.edition || "")).toUpperCase();
+    let s = 0;
+    if (n.includes("SERVER")) s += 10;
+    if (n.includes("STANDARD")) s += 5;
+    if (n.includes("DATACENTER")) s += 3;
+    if (n.includes("CORE")) s -= 4;
+    return s;
+  };
+  let best = list[0];
+  for (const im of list) if (score(im) > score(best)) best = im;
+  return best.index || 1;
+}
 
 function inspectBadge(img) {
   const inx = img && img.inspect;
@@ -906,6 +941,10 @@ function inspectBadge(img) {
   }
   if (inx.status === "error") {
     return `<span class="badge bad">不可启动</span>`;
+  }
+  if (isWindowsImage(img)) {
+    const n = (inx.wim_images || []).length;
+    return `<span class="badge ok">${n ? "WIM ×" + n : "WinPE"}</span>`;
   }
   if (img.kind === "cloud-root" && inx.root_fs && !inx.boot_uefi && !inx.boot_bios) {
     return `<span class="badge ok">rootfs ${escapeHtml(inx.root_fs)}</span>`;
@@ -919,6 +958,12 @@ function inspectBadge(img) {
 
 function imageHint(img, firmware) {
   if (!img) return "先在镜像页登记或上传";
+  if (isWindowsImage(img)) {
+    const inx = img.inspect;
+    if (!inx || inx.status === "skipped") return "Windows Server 走 WinPE 装机，不是 RAMOS。请把官方 ISO 传到控制面以便抽出 boot.wim。";
+    if (inx.status === "error") return "检测失败：" + (inx.message || "");
+    return "PXE 会进 Windows PE，用 DISM 应用 install.wim，再写 BCD。WinPE 下载阶段走 DHCP。" + (inx.message ? " " + inx.message : "");
+  }
   const whole = isWholeDiskImage(img);
   const inx = img.inspect;
   const base = whole
@@ -965,6 +1010,8 @@ function collectInstallForm() {
   if (g("in-fw")) installDraft.firmware = g("in-fw").value;
   if (g("in-disk")) installDraft.disk = g("in-disk").value;
   if (g("in-reboot")) installDraft.reboot = g("in-reboot").checked;
+  if (g("in-wim")) installDraft.wim_index = Number(g("in-wim").value || 0);
+  if (g("in-pkey")) installDraft.product_key = g("in-pkey").value.trim();
   if (g("in-keys-box")) {
     const keys = $$(".ssh-key").map(el => el.value.trim()).filter(Boolean);
     installDraft.ssh_keys = keys.length ? keys : [""];
@@ -1148,11 +1195,16 @@ function buildInstallBody() {
       have.add(m);
     }
   }
+  const win = isWindowsImage(selectedImage());
+  const netNics = win ? nics.filter(n => (n.kind || "ethernet") === "ethernet") : nics;
   return {
     machine_id: d.machine_id, image_id: d.image_id, hostname: d.hostname, username: d.username,
     password: d.password, timezone: d.timezone, firmware: d.firmware,
-    ssh_keys: (d.ssh_keys || []).map(s => s.trim()).filter(Boolean),
-    disk: d.disk, partitions: d.partitions, network: { nics }, reboot: d.reboot,
+    ssh_keys: win ? [] : (d.ssh_keys || []).map(s => s.trim()).filter(Boolean),
+    disk: d.disk, partitions: win ? [] : d.partitions, network: { nics: netNics }, reboot: d.reboot,
+    wim_index: win ? Number(d.wim_index || 0) : undefined,
+    product_key: win ? (d.product_key || "") : undefined,
+    enable_rdp: win ? true : undefined,
   };
 }
 
@@ -1180,31 +1232,13 @@ function renderInstall() {
   const disks = machineDisks(m);
   const nics = machineNics(m);
   const whole = isWholeDiskImage(img);
-  const userKnown = USER_PRESETS.includes(d.username);
+  const win = isWindowsImage(img);
+  const userPresets = win ? ["Administrator"] : USER_PRESETS;
+  const userKnown = userPresets.includes(d.username);
   const step = d.step;
-  const stepBody = step === 1 ? `
-      <div class="row">
-        <div><label>机器</label>
-          <select id="in-m">${machines.length ? machines.map(x => `<option value="${x.id}" ${x.id === d.machine_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.mac)}</option>`).join("") : `<option value="">（还没有注册的机器）</option>`}</select>
-          <p class="hint">${machineHint(m)}</p>
-        </div>
-        <div><label>镜像</label>
-          <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(osLabel(x) || x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>
-          <p class="hint">${imageHint(img, d.firmware)}</p>
-        </div>
-      </div>
-      <div class="row3">
-        <div><label>主机名</label><input id="in-host" value="${escapeHtml(d.hostname)}" placeholder="node-01"></div>
-        <div><label>固件</label>
-          <select id="in-fw">
-            <option value="uefi" ${d.firmware === "uefi" ? "selected" : ""}>UEFI</option>
-            <option value="bios" ${d.firmware === "bios" ? "selected" : ""}>传统 BIOS</option>
-          </select>
-        </div>
-        <div><label>时区</label><select id="in-tz">${opts(TIMEZONES, d.timezone)}</select></div>
-      </div>
-      <label class="chk"><input type="checkbox" id="in-reboot" ${d.reboot ? "checked" : ""}> 装完重启并切到本地磁盘引导</label>
-    ` : step === 2 ? `
+  const wimList = wimImages(img);
+  const wimIdx = d.wim_index || defaultWIMIndex(img);
+  const step2Linux = `
       <div class="tpl-block">
         <label>账号模板</label>
         <div class="tpl-row">
@@ -1216,7 +1250,7 @@ function renderInstall() {
       <div class="row">
         <div><label>登录用户</label>
           <select id="in-user">
-            ${opts(USER_PRESETS, userKnown ? d.username : "root")}
+            ${opts(userPresets, userKnown ? d.username : "root")}
             <option value="__custom" ${userKnown ? "" : "selected"}>自定义…</option>
           </select>
           <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="用户名" style="margin-top:8px">
@@ -1244,7 +1278,57 @@ function renderInstall() {
         <input type="file" id="in-key-file" class="hidden" accept=".pub,text/plain">
       </div>
       <p class="hint">点模板即可填入。账号模板会写入用户名和密码；若模板带公钥也会一并填入。密钥模板会替换下方公钥列表。</p>
-    ` : `
+    `;
+  const step2Win = `
+      <div class="tpl-block">
+        <label>账号模板</label>
+        <div class="tpl-row">
+          ${tplChipHTML(credTemplates("account"), d.account_tpl)}
+          <button type="button" class="ghost" id="in-save-acct">保存当前为账号模板</button>
+          <button type="button" class="ghost" id="in-manage-tpl">管理模板</button>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>登录用户</label>
+          <select id="in-user">
+            ${opts(userPresets, userKnown ? d.username : "Administrator")}
+            <option value="__custom" ${userKnown ? "" : "selected"}>自定义…</option>
+          </select>
+          <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="用户名" style="margin-top:8px">
+        </div>
+        <div><label>登录密码</label><input id="in-pass" type="password" value="${escapeHtml(d.password)}" placeholder="必填，写入 unattend"></div>
+      </div>
+      <p class="hint">Windows Server 没有 SSH 公钥注入。密码写入应答文件；默认开启远程桌面。主机名最长 15 个字符（A-Z 0-9 -）。</p>
+    `;
+  const step3Win = `
+      <div class="row">
+        <div><label>WIM 版本</label>
+          <select id="in-wim">
+            ${wimList.length ? wimList.map(x => `<option value="${x.index}" ${Number(wimIdx) === Number(x.index) ? "selected" : ""}>${escapeHtml(String(x.index))} · ${escapeHtml(x.name || x.edition || x.flags || ("Image " + x.index))}</option>`).join("") : `<option value="${wimIdx}">${wimIdx}</option>`}
+          </select>
+          <p class="hint">install.wim 里的 edition。默认偏 Standard（带桌面），不要选 Core 除非你就是要无 GUI。</p>
+        </div>
+        <div><label>产品密钥（可选）</label>
+          <input id="in-pkey" value="${escapeHtml(d.product_key || "")}" placeholder="评估版可留空">
+        </div>
+      </div>
+      <div><label>目标磁盘</label>
+        <select id="in-disk">
+          <option value="" ${!d.disk ? "selected" : ""}>WinPE 磁盘 0（通常是第一块盘）</option>
+          ${disks.map(x => `<option value="${escapeHtml(x.path)}" ${x.path === d.disk ? "selected" : ""}>${escapeHtml(x.path)} · ${fmtBytes(x.size_b)} · ${escapeHtml(x.model || "")}</option>`).join("")}
+        </select>
+        <p class="hint">Windows PE 用 diskpart 盘号，不是 Linux 的 /dev/sda。/dev/sda ≈ disk 0，/dev/sdb ≈ disk 1。选错会清错盘。</p>
+      </div>
+      <div class="editor-head" style="margin-top:18px">
+        <h4>网卡</h4>
+        <div class="actions">
+          <button type="button" class="ghost" id="in-add-nic">添加网卡</button>
+        </div>
+      </div>
+      <div id="in-nics-box">${(d.nics.length ? d.nics.filter(n => (n.kind || "ethernet") === "ethernet") : [blankNic()]).map((n, i) => renderNicRow({ ...n, kind: "ethernet" }, i, nics, d.nics)).join("")}</div>
+      <p class="hint">WinPE 下载 install.wim 时走 DHCP。装完后的静态 IP 写入 unattend（按 MAC）。本轮不支持 Bond / VLAN。</p>
+    `;
+  const step3Linux = `
       <div><label>目标磁盘</label>
         <select id="in-disk">
           <option value="" ${!d.disk ? "selected" : ""}>自动选择最大磁盘</option>
@@ -1272,13 +1356,36 @@ function renderInstall() {
       <div id="in-nics-box">${(d.nics.length ? d.nics : [blankNic()]).map((n, i) => renderNicRow(n, i, nics, d.nics)).join("")}</div>
       <p class="hint">${nics.length ? "物理网卡按 MAC 绑定，装完后改名为 nic0 / nic1，不沿用 RAMOS 里的 ens* / eth*。" : "尚未上报网卡时默认 DHCP。"} 可组合 Bond 和 VLAN（VLAN 可建在 Bond 上）。配置按镜像系统和版本写入（Ubuntu netplan / Debian ifupdown / Rocky NetworkManager）。</p>
     `;
+  const stepBody = step === 1 ? `
+      <div class="row">
+        <div><label>机器</label>
+          <select id="in-m">${machines.length ? machines.map(x => `<option value="${x.id}" ${x.id === d.machine_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.mac)}</option>`).join("") : `<option value="">（还没有注册的机器）</option>`}</select>
+          <p class="hint">${machineHint(m)}</p>
+        </div>
+        <div><label>镜像</label>
+          <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(osLabel(x) || x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>
+          <p class="hint">${imageHint(img, d.firmware)}</p>
+        </div>
+      </div>
+      <div class="row3">
+        <div><label>主机名</label><input id="in-host" value="${escapeHtml(d.hostname)}" placeholder="${win ? "最多15字符" : "node-01"}"></div>
+        <div><label>固件</label>
+          <select id="in-fw">
+            <option value="uefi" ${d.firmware === "uefi" ? "selected" : ""}>UEFI</option>
+            <option value="bios" ${d.firmware === "bios" ? "selected" : ""}>传统 BIOS</option>
+          </select>
+        </div>
+        <div><label>时区</label><select id="in-tz">${opts(TIMEZONES, d.timezone)}</select></div>
+      </div>
+      <label class="chk"><input type="checkbox" id="in-reboot" ${d.reboot ? "checked" : ""}> 装完重启并切到本地磁盘引导</label>
+    ` : step === 2 ? (win ? step2Win : step2Linux) : (win ? step3Win : step3Linux);
 
   view.innerHTML = `
     <div class="panel">
       <div class="steps">
         <span data-step="1" class="${step === 1 ? "on" : ""}">1 机器 / 镜像</span>
-        <span data-step="2" class="${step === 2 ? "on" : ""}">2 账号与密钥</span>
-        <span data-step="3" class="${step === 3 ? "on" : ""}">3 磁盘与网卡</span>
+        <span data-step="2" class="${step === 2 ? "on" : ""}">${win ? "2 账号" : "2 账号与密钥"}</span>
+        <span data-step="3" class="${step === 3 ? "on" : ""}">${win ? "3 版本 / 磁盘 / 网卡" : "3 磁盘与网卡"}</span>
       </div>
       ${stepBody}
       <div class="actions" style="margin-top:18px">
@@ -1297,6 +1404,9 @@ function renderInstall() {
   if (next) next.onclick = () => {
     collectInstallForm();
     if (step === 1 && (!installDraft.machine_id || !installDraft.image_id)) return alert("请选择机器和镜像");
+    if (step === 2 && isWindowsImage(selectedImage()) && !(installDraft.password || "").trim()) {
+      return alert("Windows Server 必须填写登录密码");
+    }
     installDraft.step = step + 1;
     renderInstall();
   };
@@ -1318,6 +1428,7 @@ function renderInstall() {
     const v = img ? osVersion(img.os_family, img.os_version) : null;
     if (v && v.default_user) installDraft.username = v.default_user;
     installDraft.partitions = defaultParts(installDraft.firmware, img && img.os_family, img && img.os_version);
+    installDraft.wim_index = isWindowsImage(img) ? defaultWIMIndex(img) : 0;
     renderInstall();
   };
   const fw = $("#in-fw");
@@ -1456,7 +1567,10 @@ function renderInstall() {
     const body = buildInstallBody();
     if (!body.machine_id || !body.image_id) return alert("请选择机器和镜像");
     const img = selectedImage();
-    if (img && img.inspect) {
+    const win = isWindowsImage(img);
+    if (win) {
+      if (!(body.password || "").trim()) return alert("Windows Server 必须填写登录密码");
+    } else if (img && img.inspect) {
       const inx = img.inspect;
       if (inx.status === "error") return alert("镜像检测失败：" + (inx.message || "不可启动"));
       if (isWholeDiskImage(img)) {
@@ -1473,7 +1587,7 @@ function renderInstall() {
         }
       }
     }
-    if (!isWholeDiskImage(img)) {
+    if (!win && !isWholeDiskImage(img)) {
       const roots = (body.partitions || []).filter(p => p.mount === "/");
       if (roots.length !== 1) return alert("请恰好指定一个挂载为 / 的根分区");
     }

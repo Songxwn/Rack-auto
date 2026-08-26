@@ -82,6 +82,11 @@ func TestWebLoginGatesConsoleAllowsIpxeAndAgent(t *testing.T) {
 		t.Fatalf("ipxe without login should be allowed: %d %s", rec.Code, rec.Body.String())
 	}
 
+	rec = doReq(h, "GET", "/winpe/wimboot", "", "", nil)
+	if rec.Code != 200 || rec.Body.Len() < 1024 {
+		t.Fatalf("wimboot without login: %d len=%d %s", rec.Code, rec.Body.Len(), rec.Body.String())
+	}
+
 	rec = doReq(h, "POST", "/api/v1/agent/register", `{"mac":"aa:bb:cc:dd:ee:11"}`, "", nil)
 	if rec.Code != 200 && rec.Code != 201 {
 		t.Fatalf("agent register without web login: %d %s", rec.Code, rec.Body.String())

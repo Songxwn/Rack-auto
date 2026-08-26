@@ -29,6 +29,9 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	if runtime.GOOS != "linux" {
 		return fmt.Errorf("install agent requires Linux RAMOS")
 	}
+	if job.Image != nil && job.Image.IsWindows() {
+		return fmt.Errorf("Windows Server installs via WinPE PXE, not Linux RAMOS")
+	}
 	if !isRoot() {
 		return fmt.Errorf("install requires root")
 	}

@@ -682,6 +682,9 @@ func RedactJob(j model.Job) model.Job {
 		if _, ok := cp["password"]; ok {
 			cp["password"] = ""
 		}
+		if _, ok := cp["product_key"]; ok {
+			cp["product_key"] = ""
+		}
 		j.Params = cp
 	}
 	return j

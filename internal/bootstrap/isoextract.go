@@ -273,6 +273,64 @@ func copyISOExtent(f *os.File, lba, size uint32, dest string) error {
 	return os.Rename(tmp, dest)
 }
 
+// ISOFileLocation returns the byte offset and size of a file inside an ISO 9660 / Joliet image.
+// Size is limited to 4GiB-1 by the ISO 9660 directory record; larger files live on UDF.
+func ISOFileLocation(isoPath, path string) (offset, size int64, err error) {
+	f, err := os.Open(isoPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer f.Close()
+	vols, err := readISOVolumes(f)
+	if err != nil {
+		return 0, 0, err
+	}
+	var last error
+	for _, vol := range vols {
+		lba, sz, err := vol.find(f, path)
+		if err != nil {
+			last = err
+			continue
+		}
+		return int64(lba) * isoSector, int64(sz), nil
+	}
+	if last == nil {
+		last = fmt.Errorf("not found in ISO: %s", path)
+	}
+	return 0, 0, last
+}
+
+func CopyFileRange(src string, offset, size int64, dest string) error {
+	if size < 0 {
+		return fmt.Errorf("invalid size")
+	}
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	tmp := dest + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	r := io.NewSectionReader(f, offset, size)
+	_, err = io.Copy(out, r)
+	cerr := out.Close()
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if cerr != nil {
+		_ = os.Remove(tmp)
+		return cerr
+	}
+	return os.Rename(tmp, dest)
+}
+
 type isoListed struct {
 	Path string
 	LBA  uint32

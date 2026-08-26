@@ -8,3 +8,10 @@ Source code: https://github.com/ipxe/ipxe
 
 These files are redistributed so Rack-auto can PXE-boot machines with
 no access to boot.ipxe.org.
+
+wimboot (Windows PE loader) is from:
+
+  https://github.com/ipxe/wimboot/releases/tag/v2.8.0
+
+Also GPL-2.0. Source: https://github.com/ipxe/wimboot
+
