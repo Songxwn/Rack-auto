@@ -19,16 +19,16 @@
         <small>BARE METAL OPS</small>
       </div>
     </div>
-    <div class="rail-label">NAVIGATION</div>
+    <div class="rail-label" data-i18n="nav.label">导航</div>
     <nav id="nav">
-      <button data-view="dash" class="active"><span class="idx">01</span>总览</button>
-      <button data-view="machines"><span class="idx">02</span>机器</button>
-      <button data-view="images"><span class="idx">03</span>镜像</button>
-      <button data-view="templates"><span class="idx">04</span>模板</button>
-      <button data-view="install"><span class="idx">05</span>装机</button>
-      <button data-view="stress"><span class="idx">06</span>压测</button>
-      <button data-view="jobs"><span class="idx">07</span>任务</button>
-      <button data-view="boot"><span class="idx">08</span>网络引导</button>
+      <button data-view="dash" class="active"><span class="idx">01</span><span data-i18n="nav.dash">总览</span></button>
+      <button data-view="machines"><span class="idx">02</span><span data-i18n="nav.machines">机器</span></button>
+      <button data-view="images"><span class="idx">03</span><span data-i18n="nav.images">镜像</span></button>
+      <button data-view="templates"><span class="idx">04</span><span data-i18n="nav.templates">模板</span></button>
+      <button data-view="install"><span class="idx">05</span><span data-i18n="nav.install">装机</span></button>
+      <button data-view="stress"><span class="idx">06</span><span data-i18n="nav.stress">压测</span></button>
+      <button data-view="jobs"><span class="idx">07</span><span data-i18n="nav.jobs">任务</span></button>
+      <button data-view="boot"><span class="idx">08</span><span data-i18n="nav.boot">网络引导</span></button>
     </nav>
     <div class="aside-sys">
       <span>SYS.CORE</span>
@@ -47,12 +47,16 @@
         <h1 id="title">总览</h1>
       </div>
       <div class="toolbar">
+        <div class="lang-switch" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-lang="zh" aria-pressed="true">中文</button>
+          <button type="button" class="lang-btn" data-lang="en" aria-pressed="false">EN</button>
+        </div>
         <span id="app-ver" class="ver" title="控制面版本">—</span>
         <time id="clock" class="clock">--</time>
         <span id="who" class="who" title="已登录账号">—</span>
-        <button class="ghost" id="account">账号</button>
-        <button class="ghost" id="logout">退出</button>
-        <button class="ghost" id="refresh">同步</button>
+        <button class="ghost" id="account" data-i18n="btn.account">账号</button>
+        <button class="ghost" id="logout" data-i18n="btn.logout">退出</button>
+        <button class="ghost" id="refresh" data-i18n="btn.refresh">同步</button>
       </div>
     </header>
     <section id="view"></section>
@@ -60,19 +64,24 @@
   <div id="modal" class="hidden"></div>
   <div id="login">
     <div class="login-card">
+      <div class="lang-switch login-lang" role="group" aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="zh" aria-pressed="true">中文</button>
+        <button type="button" class="lang-btn" data-lang="en" aria-pressed="false">English</button>
+      </div>
       <div class="mark" aria-hidden="true"><i></i><i></i><i></i></div>
       <strong>RACK-AUTO</strong>
-      <small>CONTROL PLANE LOGIN</small>
-      <p class="hint">Web 管理登录。默认账号 <span class="mono">admin</span> / <span class="mono">admin</span>，登录后请改掉。PXE / iPXE / Agent 不走这套登录。</p>
-      <label>用户名</label>
+      <small data-i18n="login.kicker">控制面登录</small>
+      <p class="hint" data-i18n-html="login.hint">Web 管理登录。默认账号 <span class="mono">admin</span> / <span class="mono">admin</span>，登录后请改掉。PXE / iPXE / Agent 不走这套登录。</p>
+      <label for="login-user" data-i18n="login.user">用户名</label>
       <input id="login-user" value="admin" autocomplete="username" autofocus>
-      <label>密码</label>
+      <label for="login-pass" data-i18n="login.pass">密码</label>
       <input id="login-pass" type="password" autocomplete="current-password">
       <p id="login-err" class="login-err"></p>
-      <button class="primary" id="login-go">登录</button>
+      <button class="primary" id="login-go" data-i18n="login.submit">登录</button>
       <p class="hint mono" id="login-ver"></p>
     </div>
   </div>
+  <script src="/i18n.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

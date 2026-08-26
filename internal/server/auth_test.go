@@ -72,10 +72,10 @@ func TestWebLoginGatesConsoleAllowsIpxeAndAgent(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("health: %d", rec.Code)
 	}
-	rec = doReq(h, "GET", "/style.css", "", "", nil)
-	if rec.Code != 200 {
-		t.Fatalf("web css without login: %d", rec.Code)
-	}
+  rec = doReq(h, "GET", "/i18n.js", "", "", nil)
+  if rec.Code != 200 {
+    t.Fatalf("web i18n without login: %d", rec.Code)
+  }
 
 	rec = doReq(h, "GET", "/ipxe/boot.ipxe", "", "", nil)
 	if rec.Code != 200 {

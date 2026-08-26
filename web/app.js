@@ -1,7 +1,6 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const view = $("#view");
-const titles = { dash: "总览", machines: "机器", images: "镜像", templates: "账号与密钥", install: "装机向导", stress: "硬件压测", jobs: "任务", boot: "网络引导" };
 const kickers = {
   dash: "CONTROL / OVERVIEW",
   machines: "INVENTORY / NODES",
@@ -16,14 +15,18 @@ let current = "dash";
 let cache = { machines: [], images: [], jobs: [], events: [], overview: {}, catalog: [], templates: [] };
 let authed = false;
 
+function pageTitle(name) {
+  return t("title." + name);
+}
+
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (!headers["Content-Type"] && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
   const res = await fetch("/api/v1" + path, { ...opts, headers });
   const text = await res.text();
   if (res.status === 401) {
-    showLogin(path === "/login" ? (text || "用户名或密码错误") : "请先登录");
-    throw new Error(text || "请先登录");
+    showLogin(path === "/login" ? (text || t("login.bad")) : t("login.need"));
+    throw new Error(text || t("login.need"));
   }
   if (!res.ok) throw new Error(text || res.statusText);
   return text ? JSON.parse(text) : null;
@@ -46,13 +49,13 @@ function fmtBytes(n) {
 }
 function fmtEta(sec) {
   if (!isFinite(sec) || sec < 0) return "";
-  if (sec < 1) return "<1 秒";
-  if (sec < 60) return Math.ceil(sec) + " 秒";
+  if (sec < 1) return t("eta.lt1s");
+  if (sec < 60) return t("eta.sec", { n: Math.ceil(sec) });
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
-  if (m < 60) return s ? m + " 分 " + s + " 秒" : m + " 分";
+  if (m < 60) return s ? t("eta.minsec", { m, s }) : t("eta.min", { n: m });
   const h = Math.floor(m / 60);
-  return h + " 小时 " + (m % 60) + " 分";
+  return t("eta.hour", { h, m: m % 60 });
 }
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -61,7 +64,7 @@ function escapeHtml(s) {
 function navTo(name) {
   current = name;
   $$("#nav button").forEach(b => b.classList.toggle("active", b.dataset.view === name));
-  $("#title").textContent = titles[name];
+  $("#title").textContent = pageTitle(name);
   $("#kicker").textContent = kickers[name] || "";
   render();
 }
@@ -93,17 +96,17 @@ function setHealth(ok, text) {
 }
 
 function setVersion(v) {
-  const t = (v && String(v).trim()) || "dev";
+  const label = (v && String(v).trim()) || "dev";
   const side = $("#ctrl-ver");
   const head = $("#app-ver");
-  if (side) side.textContent = t;
-  if (head) head.textContent = t;
-  document.title = "Rack-auto " + t + " · 裸金属装机";
+  if (side) side.textContent = label;
+  if (head) head.textContent = label;
+  document.title = t("doc.title", { v: label });
 }
 
 async function removeMachine(id, label) {
   const name = label || id;
-  if (!confirm("删除机器「" + name + "」？其任务记录也会一并删除。")) return false;
+  if (!confirm(t("m.delConfirm", { name }))) return false;
   await api("/machines/" + id, { method: "DELETE" });
   closeModal();
   await load();
@@ -131,11 +134,11 @@ function renderDash() {
     </div>
     <div class="panel hud-strip">
       <div>DHCP UPLINK　${o.dhcp_running ? `<span class="badge ok">LIVE · ${escapeHtml(o.dhcp_interface || "")}</span>` : `<span class="badge">STANDBY</span>`}</div>
-      <button class="ghost" id="go-boot">打开 DHCP</button>
+      <button class="ghost" id="go-boot">${t("dash.openDhcp")}</button>
     </div>
     <div class="panel telemetry">
       <h3>TELEMETRY</h3>
-      ${(cache.events || []).map(e => `<div class="event"><span class="t mono">${escapeHtml(e.created_at)}</span><span class="badge ${e.level === "error" ? "bad" : e.level === "warn" ? "warn" : "ok"}">${escapeHtml(e.level)}</span><span>${escapeHtml(e.message)}</span></div>`).join("") || "<div class='empty'>NO SIGNAL · 等待节点上报</div>"}
+      ${(cache.events || []).map(e => `<div class="event"><span class="t mono">${escapeHtml(e.created_at)}</span><span class="badge ${e.level === "error" ? "bad" : e.level === "warn" ? "warn" : "ok"}">${escapeHtml(e.level)}</span><span>${escapeHtml(e.message)}</span></div>`).join("") || `<div class='empty'>${t("dash.empty")}</div>`}
     </div>`;
   $("#go-boot").onclick = () => navTo("boot");
 }
@@ -143,11 +146,11 @@ function renderDash() {
 function renderMachines() {
   view.innerHTML = `
     <div class="actions" style="margin-bottom:12px">
-      <button class="primary" id="add-m">登记机器 / BMC</button>
+      <button class="primary" id="add-m">${t("m.add")}</button>
     </div>
     <div class="panel">
       <table>
-        <thead><tr><th>名称</th><th>MAC / IP</th><th>状态</th><th>固件</th><th>BMC</th><th>硬件</th><th></th></tr></thead>
+        <thead><tr><th>${t("m.col.name")}</th><th>${t("m.col.mac")}</th><th>${t("m.col.status")}</th><th>${t("m.col.fw")}</th><th>${t("m.col.bmc")}</th><th>${t("m.col.hw")}</th><th></th></tr></thead>
         <tbody>${(cache.machines || []).length ? (cache.machines || []).map(m => `
           <tr>
             <td>${escapeHtml(m.name)}<div class="hint mono">${escapeHtml(m.id)}</div></td>
@@ -157,16 +160,16 @@ function renderMachines() {
             <td>${escapeHtml(m.bmc_type || "-")}<div class="hint">${escapeHtml(m.bmc_address || "")}</div></td>
             <td>${hwCell(m)}</td>
             <td class="actions">
-              <button class="primary" data-act="install" data-id="${m.id}">装机</button>
-              <button data-act="detail" data-id="${m.id}">详情</button>
-              <button data-act="detect" data-id="${m.id}">检测</button>
-              <button data-act="pxe" data-id="${m.id}">PXE重启</button>
-              <button data-act="on" data-id="${m.id}">开机</button>
-              <button data-act="off" data-id="${m.id}">关机</button>
-              <button data-act="cycle" data-id="${m.id}">重启</button>
-              <button class="danger" data-act="delete" data-id="${m.id}" data-name="${escapeHtml(m.name || m.mac || m.id)}">删除</button>
+              <button class="primary" data-act="install" data-id="${m.id}">${t("m.install")}</button>
+              <button data-act="detail" data-id="${m.id}">${t("m.detail")}</button>
+              <button data-act="detect" data-id="${m.id}">${t("m.detect")}</button>
+              <button data-act="pxe" data-id="${m.id}">${t("m.pxe")}</button>
+              <button data-act="on" data-id="${m.id}">${t("m.on")}</button>
+              <button data-act="off" data-id="${m.id}">${t("m.off")}</button>
+              <button data-act="cycle" data-id="${m.id}">${t("m.cycle")}</button>
+              <button class="danger" data-act="delete" data-id="${m.id}" data-name="${escapeHtml(m.name || m.mac || m.id)}">${t("btn.delete")}</button>
             </td>
-          </tr>`).join("") : `<tr><td colspan="7" class="empty">NO NODES · 尚未登记机器</td></tr>`}
+          </tr>`).join("") : `<tr><td colspan="7" class="empty">${t("m.empty")}</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -196,27 +199,27 @@ function renderMachines() {
 
 function machineForm(m = {}) {
   openModal(`
-    <h3>${m.id ? "编辑机器" : "登记机器"}</h3>
+    <h3>${m.id ? t("m.edit") : t("m.register")}</h3>
     <div class="row">
-      <div><label>名称</label><input id="f-name" value="${escapeHtml(m.name || "")}"></div>
-      <div><label>MAC</label><input id="f-mac" value="${escapeHtml(m.mac || "")}" placeholder="aa:bb:cc:dd:ee:ff"></div>
+      <div><label>${t("m.name")}</label><input id="f-name" value="${escapeHtml(m.name || "")}"></div>
+      <div><label>${t("m.mac")}</label><input id="f-mac" value="${escapeHtml(m.mac || "")}" placeholder="aa:bb:cc:dd:ee:ff"></div>
     </div>
     <div class="row3">
-      <div><label>固件</label><select id="f-fw"><option value="uefi">UEFI</option><option value="bios">传统 BIOS</option></select></div>
-      <div><label>引导模式</label><select id="f-boot"><option value="ramos">RAMOS</option><option value="pxe">PXE</option><option value="disk">本地磁盘</option></select></div>
-      <div><label>BMC 协议</label><select id="f-bmc"><option value="ipmi">IPMI</option><option value="redfish">Redfish</option></select></div>
+      <div><label>${t("m.fw")}</label><select id="f-fw"><option value="uefi">UEFI</option><option value="bios">${t("m.fw.bios")}</option></select></div>
+      <div><label>${t("m.boot")}</label><select id="f-boot"><option value="ramos">RAMOS</option><option value="pxe">PXE</option><option value="disk">${t("m.boot.disk")}</option></select></div>
+      <div><label>${t("m.bmcProto")}</label><select id="f-bmc"><option value="ipmi">IPMI</option><option value="redfish">Redfish</option></select></div>
     </div>
     <div class="row3">
-      <div><label>BMC 地址</label><input id="f-addr" value="${escapeHtml(m.bmc_address || "")}" placeholder="192.168.1.100 或 https://bmc/redfish/v1"></div>
-      <div><label>端口</label><input id="f-port" value="${m.bmc_port || 623}"></div>
-      <div><label>用户名</label><input id="f-user" value="${escapeHtml(m.bmc_username || "")}"></div>
+      <div><label>${t("m.bmcAddr")}</label><input id="f-addr" value="${escapeHtml(m.bmc_address || "")}" placeholder="${t("ph.bmc")}"></div>
+      <div><label>${t("m.port")}</label><input id="f-port" value="${m.bmc_port || 623}"></div>
+      <div><label>${t("m.user")}</label><input id="f-user" value="${escapeHtml(m.bmc_username || "")}"></div>
     </div>
-    <label>密码</label><input id="f-pass" type="password" placeholder="${m.id ? "留空则不修改" : ""}">
-    <label><input type="checkbox" id="f-insecure" ${m.bmc_insecure ? "checked" : ""}> Redfish 跳过 TLS 校验</label>
+    <label>${t("m.pass")}</label><input id="f-pass" type="password" placeholder="${m.id ? t("m.passKeep") : ""}">
+    <label><input type="checkbox" id="f-insecure" ${m.bmc_insecure ? "checked" : ""}> ${t("m.insecure")}</label>
     <div class="actions" style="margin-top:14px">
-      <button class="primary" id="f-save">保存</button>
-      <button class="ghost" id="f-close">取消</button>
-      ${m.id ? `<button class="danger" id="f-del">删除</button>` : ""}
+      <button class="primary" id="f-save">${t("btn.save")}</button>
+      <button class="ghost" id="f-close">${t("btn.cancel")}</button>
+      ${m.id ? `<button class="danger" id="f-del">${t("btn.delete")}</button>` : ""}
     </div>`);
   $("#f-fw").value = m.firmware || "uefi";
   $("#f-boot").value = m.boot_mode || "ramos";
@@ -247,35 +250,35 @@ async function machineDetail(id) {
   if (!m) return;
   const inv = m.inventory || {};
   const kv = [
-    ["品牌", inv.vendor],
-    ["型号", inv.product],
-    ["序列号", inv.serial],
+    [t("kv.vendor"), inv.vendor],
+    [t("kv.product"), inv.product],
+    [t("kv.serial"), inv.serial],
     ["SKU", inv.sku],
     ["UUID", inv.uuid],
-    ["资产标签", inv.asset_tag],
-    ["主板", [inv.board_vendor, inv.board_name].filter(Boolean).join(" ")],
-    ["主板序列号", inv.board_serial],
+    [t("kv.asset"), inv.asset_tag],
+    [t("kv.board"), [inv.board_vendor, inv.board_name].filter(Boolean).join(" ")],
+    [t("kv.boardSn"), inv.board_serial],
     ["BIOS", [inv.bios_vendor, inv.bios_version, inv.bios_date].filter(Boolean).join(" · ")],
-    ["来源", inv.detect_source === "redfish" ? "Redfish BMC" : (inv.detect_source === "dmi" ? "RAMOS DMI" : inv.detect_source)],
+    [t("kv.source"), inv.detect_source === "redfish" ? "Redfish BMC" : (inv.detect_source === "dmi" ? "RAMOS DMI" : inv.detect_source)],
   ].filter(x => x[1]);
   openModal(`
     <h3>${escapeHtml(m.name)}</h3>
     <p class="hint mono">${escapeHtml(m.mac)} · ${escapeHtml(m.ip || "")} · agent ${escapeHtml(m.agent_version || "-")}</p>
     <div class="actions">
-      <button class="primary" id="md-install">装机</button>
-      <button id="md-detect">检测硬件</button>
-      <button id="ed">编辑 BMC</button>
-      <button id="pxe">PXE 引导并重启</button>
-      <button id="disk">下次从磁盘启动</button>
-      <button class="danger" id="md-del">删除机器</button>
+      <button class="primary" id="md-install">${t("m.install")}</button>
+      <button id="md-detect">${t("m.detectHw")}</button>
+      <button id="ed">${t("m.editBmc")}</button>
+      <button id="pxe">${t("m.pxeBoot")}</button>
+      <button id="disk">${t("m.nextDisk")}</button>
+      <button class="danger" id="md-del">${t("m.del")}</button>
     </div>
-    <h4>服务器</h4>
-    ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}</dl>` : `<div class="hint">还没有品牌/型号/序列号。点「检测硬件」（需 Redfish），或先 PXE 进 RAMOS 让 Agent 上报 DMI。</div>`}
-    <h4>CPU / 内存</h4>
-    <div class="hint">${escapeHtml(inv.cpu_model || "")} · ${inv.cpus || 0} 核 · ${inv.memory_mb || 0} MB · ${escapeHtml(inv.firmware || "")}</div>
-    <h4>磁盘</h4>
+    <h4>${t("m.server")}</h4>
+    ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}</dl>` : `<div class="hint">${t("m.noInv")}</div>`}
+    <h4>${t("m.cpuMem")}</h4>
+    <div class="hint">${escapeHtml(inv.cpu_model || "")} · ${t("m.cores", { n: inv.cpus || 0 })} · ${inv.memory_mb || 0} MB · ${escapeHtml(inv.firmware || "")}</div>
+    <h4>${t("m.disks")}</h4>
     ${(inv.disks || []).map(d => `<div class="hint mono">${escapeHtml(d.path)} ${fmtBytes(d.size_b)} ${escapeHtml(d.model || "")}${d.serial ? " SN " + escapeHtml(d.serial) : ""}</div>`).join("") || "<div class='hint'>-</div>"}
-    <h4>网卡</h4>
+    <h4>${t("m.nics")}</h4>
     ${(inv.nics || []).map(n => `<div class="hint mono">${escapeHtml(n.name)} ${escapeHtml(n.mac)} ${escapeHtml((n.ips||[]).join(", "))}</div>`).join("") || "<div class='hint'>-</div>"}
   `);
   $("#md-install").onclick = () => startInstall(id);
@@ -332,13 +335,13 @@ function startInstall(id) {
 }
 
 function machineHint(m) {
-  if (!m) return "选一台已进入 RAMOS 的机器";
+  if (!m) return t("m.hintPick");
   const inv = m.inventory || {};
   const bits = [];
   const line = productLine(inv);
   if (line) bits.push(line);
   if (inv.serial) bits.push("SN " + inv.serial);
-  bits.push(`${inv.cpus || 0} 核 · ${inv.memory_mb || 0} MB · ${(inv.disks || []).length} 块盘`);
+  bits.push(t("m.hintInv", { cpu: inv.cpus || 0, mem: inv.memory_mb || 0, disks: (inv.disks || []).length }));
   return bits.join(" · ");
 }
 
@@ -364,18 +367,18 @@ function setUploadProgress(p) {
   bar.setAttribute("aria-valuenow", String(Math.round(pct)));
   pctEl.textContent = Math.round(pct) + "%";
   if (p.phase === "ready") {
-    text.textContent = "准备上传 · " + fmtBytes(total);
+    text.textContent = t("up.ready", { size: fmtBytes(total) });
   } else if (p.phase === "inspecting") {
-    text.textContent = "上传完成，正在检测分区和引导…";
+    text.textContent = t("up.inspect");
   } else if (p.phase === "error") {
-    text.textContent = p.error || "上传失败";
-    pctEl.textContent = "失败";
+    text.textContent = p.error || t("up.fail");
+    pctEl.textContent = t("up.failed");
   } else {
     const parts = [fmtBytes(loaded) + " / " + fmtBytes(total)];
     if (p.speed > 0) parts.push(fmtBytes(p.speed) + "/s");
     if (p.speed > 0 && total > loaded) {
       const eta = fmtEta((total - loaded) / p.speed);
-      if (eta) parts.push("剩余 " + eta);
+      if (eta) parts.push(t("up.eta", { eta }));
     }
     text.textContent = parts.join(" · ");
   }
@@ -406,15 +409,15 @@ function uploadControlPlaneImage(file, fields) {
     };
     xhr.onload = () => {
       if (xhr.status === 401) {
-        showLogin("请先登录");
-        reject(new Error("请先登录"));
+        showLogin(t("login.need"));
+        reject(new Error(t("login.need")));
         return;
       }
       if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
       else reject(new Error(xhr.responseText || ("HTTP " + xhr.status)));
     };
-    xhr.onerror = () => reject(new Error("网络错误，上传中断"));
-    xhr.onabort = () => reject(new Error("已取消"));
+    xhr.onerror = () => reject(new Error(t("net.err")));
+    xhr.onabort = () => reject(new Error(t("net.abort")));
     const fd = new FormData();
     fd.append("file", file);
     fd.append("name", fields.name || file.name);
@@ -430,18 +433,18 @@ function renderImages() {
   view.innerHTML = `
     <div class="row">
       <div class="panel">
-        <h3>登记镜像 URL</h3>
-        <label>名称</label><input id="i-name" placeholder="Ubuntu 24.04 cloud">
+        <h3>${t("img.urlTitle")}</h3>
+        <label>${t("img.name")}</label><input id="i-name" placeholder="Ubuntu 24.04 cloud">
         <div class="row3">
           ${osSelectHTML("ubuntu", "24.04", "i")}
           ${imageKindHTML("i-kind")}
         </div>
-        <label>URL</label><input id="i-url" placeholder="https://...img 或 http://本平台/images/...">
-        <div class="row"><div><label>SHA256</label><input id="i-sum"></div><div><label></label><button class="primary" id="i-add">登记</button></div></div>
+        <label>${t("img.url")}</label><input id="i-url" placeholder="${t("ph.imgUrl")}">
+        <div class="row"><div><label>SHA256</label><input id="i-sum"></div><div><label></label><button class="primary" id="i-add">${t("img.register")}</button></div></div>
       </div>
       <div class="panel">
-        <h3>上传到控制面</h3>
-        <p class="hint">大文件建议用 URL 登记。上传前请选好系统和版本，传到本机后会检测分区表和 UEFI/BIOS 引导。Windows Server 请选「Windows Server ISO」并上传官方 ISO（会抽出 WinPE 的 boot.wim）。</p>
+        <h3>${t("img.uploadTitle")}</h3>
+        <p class="hint">${t("img.hint")}</p>
         <div class="row3">
           ${osSelectHTML("ubuntu", "24.04", "u")}
           ${imageKindHTML("u-kind")}
@@ -453,25 +456,25 @@ function renderImages() {
             <i class="upload-fill" id="i-progress-fill"></i>
           </div>
           <div class="upload-meta">
-            <span id="i-progress-text">准备上传</span>
+            <span id="i-progress-text">${t("up.prepare")}</span>
             <b id="i-progress-pct">0%</b>
           </div>
         </div>
-        <button class="primary" id="i-up" style="margin-top:12px">上传</button>
+        <button class="primary" id="i-up" style="margin-top:12px">${t("up.btn")}</button>
       </div>
     </div>
     <div class="panel" style="margin-top:14px">
-      <table><thead><tr><th>名称</th><th>类型</th><th>大小</th><th>引导</th><th>URL</th><th></th></tr></thead>
+      <table><thead><tr><th>${t("img.name")}</th><th>${t("img.col.kind")}</th><th>${t("img.col.size")}</th><th>${t("img.col.boot")}</th><th>URL</th><th></th></tr></thead>
       <tbody>${(cache.images||[]).length ? (cache.images||[]).map(i => `<tr>
         <td>${escapeHtml(i.name)}<div class="hint">${escapeHtml(osLabel(i))}</div></td>
         <td>${escapeHtml(i.kind)}</td><td>${fmtBytes(i.size_b || (i.inspect && i.inspect.virtual_size_b) || 0)}</td>
         <td>${inspectBadge(i)}<div class="hint">${escapeHtml((i.inspect && i.inspect.message) || "")}</div></td>
         <td class="mono hint">${escapeHtml(i.url)}</td>
         <td class="actions">
-          <button data-inspect="${i.id}">检测</button>
-          <button class="danger" data-del="${i.id}">删除</button>
+          <button data-inspect="${i.id}">${t("img.inspect")}</button>
+          <button class="danger" data-del="${i.id}">${t("btn.delete")}</button>
         </td>
-      </tr>`).join("") : `<tr><td colspan="6" class="empty">NO IMAGES · 登记 URL 或上传镜像</td></tr>`}</tbody></table>
+      </tr>`).join("") : `<tr><td colspan="6" class="empty">${t("img.empty")}</td></tr>`}</tbody></table>
     </div>`;
   $("#i-add").onclick = async () => {
     try {
@@ -495,13 +498,13 @@ function renderImages() {
   };
   $("#i-up").onclick = async () => {
     const f = $("#i-file").files[0];
-    if (!f) return alert("选择文件");
+    if (!f) return alert(t("img.choose"));
     const btn = $("#i-up");
     const fileEl = $("#i-file");
     btn.disabled = true;
     if (fileEl) fileEl.disabled = true;
     ["u-os", "u-osver", "u-kind"].forEach(id => { const el = $("#" + id); if (el) el.disabled = true; });
-    btn.textContent = "上传中…";
+    btn.textContent = t("up.busy");
     try {
       await uploadControlPlaneImage(f, {
         name: f.name,
@@ -516,7 +519,7 @@ function renderImages() {
       btn.disabled = false;
       if (fileEl) fileEl.disabled = false;
       ["u-os", "u-osver", "u-kind"].forEach(id => { const el = $("#" + id); if (el) el.disabled = false; });
-      btn.textContent = "上传";
+      btn.textContent = t("up.btn");
       alert(e.message);
     }
   };
@@ -531,7 +534,7 @@ function renderImages() {
     }
     const id = ev.target.dataset.del;
     if (!id) return;
-    if (!confirm("删除镜像？")) return;
+    if (!confirm(t("img.delConfirm"))) return;
     await api("/images/" + id, { method: "DELETE" });
     await load(); render();
   };
@@ -584,13 +587,13 @@ const OS_CATALOG = [
     { id: "2022", label: "2022", default_user: "Administrator", root_fs: "ntfs", net_backend: "windows" },
     { id: "2025", label: "2025", default_user: "Administrator", root_fs: "ntfs", net_backend: "windows" },
   ]},
-  { family: "custom", label: "自定义", versions: [
+  { family: "custom", label: "custom", versions: [
     { id: "generic", label: "generic", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
   ]},
 ];
 const BOND_MODES = [
   ["802.3ad", "802.3ad (LACP)"],
-  ["active-backup", "主备 active-backup"],
+  ["active-backup", "active-backup"],
   ["balance-tlb", "balance-tlb"],
   ["balance-alb", "balance-alb"],
   ["balance-xor", "balance-xor"],
@@ -625,9 +628,10 @@ function osLabel(img) {
   if (!img) return "";
   const d = osCatalog().find(x => x.family === img.os_family);
   const v = osVersion(img.os_family, img.os_version);
+  const dlab = d ? (d.family === "custom" ? t("os.custom") : d.label) : "";
   if (!d) return [img.os_family, img.os_version].filter(Boolean).join(" ");
-  if (v && v.id && v.id !== "generic") return d.label + " " + v.label;
-  return d.label;
+  if (v && v.id && v.id !== "generic") return dlab + " " + v.label;
+  return dlab;
 }
 function osSelectHTML(family, version, prefix) {
   const cats = osCatalog();
@@ -635,10 +639,11 @@ function osSelectHTML(family, version, prefix) {
   const d = osDistro(fam);
   const ver = version || (d && d.versions[d.versions.length - 1].id) || "";
   const p = prefix || "i";
-  return `<div><label>系统</label>
-    <select id="${p}-os">${cats.map(x => `<option value="${escapeHtml(x.family)}" ${x.family === fam ? "selected" : ""}>${escapeHtml(x.label)}</option>`).join("")}</select>
+  const lab = x => x.family === "custom" ? t("os.custom") : x.label;
+  return `<div><label>${t("img.os")}</label>
+    <select id="${p}-os">${cats.map(x => `<option value="${escapeHtml(x.family)}" ${x.family === fam ? "selected" : ""}>${escapeHtml(lab(x))}</option>`).join("")}</select>
   </div>
-  <div><label>版本</label>
+  <div><label>${t("img.ver")}</label>
     <select id="${p}-osver">${(d.versions || []).map(v => `<option value="${escapeHtml(v.id)}" ${v.id === ver ? "selected" : ""}>${escapeHtml(v.label)}</option>`).join("")}</select>
   </div>`;
 }
@@ -646,13 +651,13 @@ function osSelectHTML(family, version, prefix) {
 function imageKindHTML(id, selected) {
   const cur = selected || "cloud-disk";
   const kinds = [
-    ["cloud-disk", "云镜像（整盘 qcow2/raw）"],
-    ["cloud-root", "根文件系统镜像"],
-    ["raw-disk", "整盘 raw"],
-    ["windows-iso", "Windows Server ISO"],
-    ["windows-wim", "Windows install.wim / ESD"],
+    ["cloud-disk", t("img.kind.cloudDisk")],
+    ["cloud-root", t("img.kind.cloudRoot")],
+    ["raw-disk", t("img.kind.rawDisk")],
+    ["windows-iso", t("img.kind.winIso")],
+    ["windows-wim", t("img.kind.winWim")],
   ];
-  return `<div><label>类型</label>
+  return `<div><label>${t("img.kind")}</label>
     <select id="${escapeHtml(id)}">${kinds.map(([v, lab]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${lab}</option>`).join("")}</select>
   </div>`;
 }
@@ -696,7 +701,7 @@ function keyPreview(keys) {
 }
 
 function tplChipHTML(list, selectedId) {
-  if (!list.length) return `<span class="hint">还没有模板</span>`;
+  if (!list.length) return `<span class="hint">${t("tpl.none")}</span>`;
   return list.map(t => `<button type="button" class="tpl-chip ${t.id === selectedId ? "on" : ""}" data-tpl="${escapeHtml(t.id)}">${escapeHtml(t.name || t.id)}</button>`).join("");
 }
 
@@ -745,40 +750,40 @@ function splitKeyLines(text) {
   return String(text || "").split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith("#"));
 }
 
-function templateForm(t = {}, kind) {
-  const k = t.kind || kind || "account";
-  const keys = (t.ssh_keys && t.ssh_keys.length) ? t.ssh_keys.join("\n") : "";
+function templateForm(tpl = {}, kind) {
+  const k = tpl.kind || kind || "account";
+  const keys = (tpl.ssh_keys && tpl.ssh_keys.length) ? tpl.ssh_keys.join("\n") : "";
   openModal(`
-    <h3>${t.id ? "编辑模板" : (k === "key" ? "新建密钥模板" : "新建账号模板")}</h3>
-    <label>名称</label><input id="tf-name" value="${escapeHtml(t.name || "")}" placeholder="${k === "key" ? "例如 运维公钥" : "例如 机房 root"}">
+    <h3>${tpl.id ? t("tpl.edit") : (k === "key" ? t("tpl.newKey") : t("tpl.newAcct"))}</h3>
+    <label>${t("tpl.name")}</label><input id="tf-name" value="${escapeHtml(tpl.name || "")}" placeholder="${k === "key" ? t("tpl.phKey") : t("tpl.phAcct")}">
     ${k === "account" ? `
       <div class="row">
-        <div><label>用户名</label><input id="tf-user" value="${escapeHtml(t.username || "root")}"></div>
-        <div><label>密码</label><input id="tf-pass" type="password" placeholder="${t.id ? "留空则不修改" : ""}"></div>
+        <div><label>${t("tpl.user")}</label><input id="tf-user" value="${escapeHtml(tpl.username || "root")}"></div>
+        <div><label>${t("tpl.pass")}</label><input id="tf-pass" type="password" placeholder="${tpl.id ? t("m.passKeep") : ""}"></div>
       </div>
     ` : ""}
-    <label>SSH 公钥（每行一把）</label>
+    <label>${t("tpl.keys")}</label>
     <textarea id="tf-keys" placeholder="ssh-ed25519 AAAA...">${escapeHtml(keys)}</textarea>
-    <label>备注</label><input id="tf-notes" value="${escapeHtml(t.notes || "")}" placeholder="可选">
+    <label>${t("tpl.notes")}</label><input id="tf-notes" value="${escapeHtml(tpl.notes || "")}" placeholder="${t("tpl.notesPh")}">
     <div class="actions" style="margin-top:14px">
-      <button class="primary" id="tf-save">保存</button>
-      <button class="ghost" id="tf-close">取消</button>
+      <button class="primary" id="tf-save">${t("btn.save")}</button>
+      <button class="ghost" id="tf-close">${t("btn.cancel")}</button>
     </div>`);
   $("#tf-close").onclick = closeModal;
   $("#tf-save").onclick = async () => {
     const name = $("#tf-name").value.trim();
-    if (!name) return alert("请填写名称");
+    if (!name) return alert(t("tpl.needName"));
     const sshKeys = splitKeyLines($("#tf-keys").value);
     const body = { kind: k, name, notes: $("#tf-notes").value.trim(), ssh_keys: sshKeys };
     if (k === "account") {
       body.username = $("#tf-user").value.trim();
       body.password = $("#tf-pass").value;
-      if (!body.username) return alert("请填写用户名");
+      if (!body.username) return alert(t("tpl.needUser"));
     } else if (!sshKeys.length) {
-      return alert("请填写至少一把公钥");
+      return alert(t("tpl.needKey"));
     }
     try {
-      if (t.id) await api("/templates/" + t.id, { method: "PUT", body: JSON.stringify({ ...t, ...body }) });
+      if (tpl.id) await api("/templates/" + tpl.id, { method: "PUT", body: JSON.stringify({ ...tpl, ...body }) });
       else await api("/templates", { method: "POST", body: JSON.stringify(body) });
       closeModal();
       await load();
@@ -791,21 +796,21 @@ function promptTemplateSave(kind) {
   collectInstallForm();
   const d = installDraft || {};
   const keys = (d.ssh_keys || []).map(s => String(s).trim()).filter(Boolean);
-  if (kind === "key" && !keys.length) return alert("请先填写公钥");
-  if (kind === "account" && !(d.username || "").trim()) return alert("请先填写用户名");
+  if (kind === "key" && !keys.length) return alert(t("tpl.needKeyFirst"));
+  if (kind === "account" && !(d.username || "").trim()) return alert(t("tpl.needUser"));
   openModal(`
-    <h3>${kind === "account" ? "保存账号模板" : "保存密钥模板"}</h3>
-    <label>名称</label><input id="tpl-name" placeholder="${kind === "account" ? "例如 机房 root" : "例如 运维公钥"}">
-    <label>备注</label><input id="tpl-notes" placeholder="可选">
-    ${kind === "account" ? `<label class="chk"><input type="checkbox" id="tpl-with-keys" ${keys.length ? "checked" : ""}> 同时保存当前公钥</label>` : ""}
+    <h3>${kind === "account" ? t("tpl.saveAcct") : t("tpl.saveKey")}</h3>
+    <label>${t("tpl.name")}</label><input id="tpl-name" placeholder="${kind === "account" ? t("tpl.phAcct") : t("tpl.phKey")}">
+    <label>${t("tpl.notes")}</label><input id="tpl-notes" placeholder="${t("tpl.notesPh")}">
+    ${kind === "account" ? `<label class="chk"><input type="checkbox" id="tpl-with-keys" ${keys.length ? "checked" : ""}> ${t("tpl.withKeys")}</label>` : ""}
     <div class="actions" style="margin-top:14px">
-      <button class="primary" id="tpl-ok">保存</button>
-      <button class="ghost" id="tpl-no">取消</button>
+      <button class="primary" id="tpl-ok">${t("btn.save")}</button>
+      <button class="ghost" id="tpl-no">${t("btn.cancel")}</button>
     </div>`);
   $("#tpl-no").onclick = closeModal;
   $("#tpl-ok").onclick = async () => {
     const name = $("#tpl-name").value.trim();
-    if (!name) return alert("请填写名称");
+    if (!name) return alert(t("tpl.needName"));
     const body = { kind, name, notes: $("#tpl-notes").value.trim() };
     if (kind === "account") {
       body.username = d.username;
@@ -831,26 +836,26 @@ function renderTemplates() {
   const list = cache.templates || [];
   view.innerHTML = `
     <div class="actions" style="margin-bottom:12px">
-      <button class="primary" id="tpl-add-acct">新建账号模板</button>
-      <button id="tpl-add-key">新建密钥模板</button>
+      <button class="primary" id="tpl-add-acct">${t("tpl.newAcct")}</button>
+      <button id="tpl-add-key">${t("tpl.newKey")}</button>
     </div>
-    <p class="hint" style="margin:0 0 12px">账号模板保存用户名和密码（公钥可选）；密钥模板只保存公钥。装机向导第 2 步可一键引用。</p>
+    <p class="hint" style="margin:0 0 12px">${t("tpl.pageHint")}</p>
     <div class="panel">
       <table>
-        <thead><tr><th>名称</th><th>类型</th><th>用户</th><th>密钥</th><th>备注</th><th></th></tr></thead>
-        <tbody>${list.length ? list.map(t => `
+        <thead><tr><th>${t("tpl.name")}</th><th>${t("tpl.col.kind")}</th><th>${t("tpl.col.user")}</th><th>${t("tpl.col.keys")}</th><th>${t("tpl.col.notes")}</th><th></th></tr></thead>
+        <tbody>${list.length ? list.map(row => `
           <tr>
-            <td>${escapeHtml(t.name)}<div class="hint mono">${escapeHtml(t.id)}</div></td>
-            <td>${t.kind === "key" ? `<span class="badge">密钥</span>` : `<span class="badge ok">账号</span>`}</td>
-            <td class="mono">${t.kind === "account" ? escapeHtml(t.username || "—") : "—"}</td>
-            <td class="mono hint">${escapeHtml(keyPreview(t.ssh_keys))}</td>
-            <td class="hint">${escapeHtml(t.notes || "")}</td>
+            <td>${escapeHtml(row.name)}<div class="hint mono">${escapeHtml(row.id)}</div></td>
+            <td>${row.kind === "key" ? `<span class="badge">${t("tpl.kind.key")}</span>` : `<span class="badge ok">${t("tpl.kind.acct")}</span>`}</td>
+            <td class="mono">${row.kind === "account" ? escapeHtml(row.username || "—") : "—"}</td>
+            <td class="mono hint">${escapeHtml(keyPreview(row.ssh_keys))}</td>
+            <td class="hint">${escapeHtml(row.notes || "")}</td>
             <td class="actions">
-              <button class="primary" data-act="quote" data-id="${t.id}">引用到装机</button>
-              <button data-act="edit" data-id="${t.id}">编辑</button>
-              <button class="danger" data-act="delete" data-id="${t.id}" data-name="${escapeHtml(t.name || t.id)}">删除</button>
+              <button class="primary" data-act="quote" data-id="${row.id}">${t("tpl.quote")}</button>
+              <button data-act="edit" data-id="${row.id}">${t("btn.edit")}</button>
+              <button class="danger" data-act="delete" data-id="${row.id}" data-name="${escapeHtml(row.name || row.id)}">${t("btn.delete")}</button>
             </td>
-          </tr>`).join("") : `<tr><td colspan="6" class="empty">NO TEMPLATES · 先建账号或密钥模板</td></tr>`}
+          </tr>`).join("") : `<tr><td colspan="6" class="empty">${t("tpl.empty")}</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -871,7 +876,7 @@ function renderTemplates() {
         return;
       }
       if (b.dataset.act === "delete") {
-        if (!confirm("删除模板「" + (b.dataset.name || b.dataset.id) + "」？")) return;
+        if (!confirm(t("tpl.delConfirm", { name: b.dataset.name || b.dataset.id }))) return;
         await api("/templates/" + b.dataset.id, { method: "DELETE" });
         await load();
         render();
@@ -937,10 +942,10 @@ function defaultWIMIndex(img) {
 function inspectBadge(img) {
   const inx = img && img.inspect;
   if (!inx || !inx.status || inx.status === "skipped") {
-    return `<span class="badge">未检测</span>`;
+    return `<span class="badge">${t("insp.none")}</span>`;
   }
   if (inx.status === "error") {
-    return `<span class="badge bad">不可启动</span>`;
+    return `<span class="badge bad">${t("insp.bad")}</span>`;
   }
   if (isWindowsImage(img)) {
     const n = (inx.wim_images || []).length;
@@ -952,29 +957,27 @@ function inspectBadge(img) {
   const bits = [];
   if (inx.boot_uefi) bits.push("UEFI");
   if (inx.boot_bios) bits.push("BIOS");
-  if (!bits.length) return `<span class="badge warn">无引导</span>`;
+  if (!bits.length) return `<span class="badge warn">${t("insp.noboot")}</span>`;
   return `<span class="badge ${inx.status === "warn" ? "warn" : "ok"}">${bits.join(" / ")}</span>`;
 }
 
 function imageHint(img, firmware) {
-  if (!img) return "先在镜像页登记或上传";
+  if (!img) return t("img.hintNeed");
   if (isWindowsImage(img)) {
     const inx = img.inspect;
-    if (!inx || inx.status === "skipped") return "Windows Server 走 WinPE 装机，不是 RAMOS。请把官方 ISO 传到控制面以便抽出 boot.wim。";
-    if (inx.status === "error") return "检测失败：" + (inx.message || "");
-    return "PXE 会进 Windows PE，用 DISM 应用 install.wim，再写 BCD。WinPE 下载阶段走 DHCP。" + (inx.message ? " " + inx.message : "");
+    if (!inx || inx.status === "skipped") return t("img.hintWinSkip");
+    if (inx.status === "error") return t("img.hintFail", { msg: inx.message || "" });
+    return t("img.hintWinOk") + (inx.message ? " " + inx.message : "");
   }
   const whole = isWholeDiskImage(img);
   const inx = img.inspect;
-  const base = whole
-    ? "整盘云镜像，写入后保留镜像内分区，并自动把根分区扩到整盘"
-    : "根文件系统镜像，需要在第 3 步指定分区（剩余空间会占满磁盘）";
+  const base = whole ? t("img.hintWhole") : t("img.hintRoot");
   if (!inx || inx.status === "skipped") {
-    return base + "。未检测引导，建议先在镜像页点「检测」。";
+    return base + t("img.hintNoInspect");
   }
-  if (inx.status === "error") return "检测失败：" + (inx.message || "");
-  if (whole && firmware === "bios" && !inx.boot_bios) return "该镜像不能 BIOS 启动，请改选 UEFI 或换镜像。";
-  if (whole && firmware !== "bios" && !inx.boot_uefi) return "该镜像不能 UEFI 启动，请改选 BIOS 或换镜像。";
+  if (inx.status === "error") return t("img.hintFail", { msg: inx.message || "" });
+  if (whole && firmware === "bios" && !inx.boot_bios) return t("img.hintNoBios");
+  if (whole && firmware !== "bios" && !inx.boot_uefi) return t("img.hintNoUefi");
   return base + (inx.message ? "。" + inx.message : "");
 }
 
@@ -1058,7 +1061,7 @@ function partBar(parts, diskBytes) {
   return `<div class="part-bar">${parts.map((p, i) => {
     const mb = p.size_mb > 0 ? p.size_mb : Math.max(total - fixed, 1);
     const pct = Math.max(8, Math.min(80, (mb / total) * 100));
-    return `<i class="seg${i % 3}" style="flex:${pct}" title="${escapeHtml(p.name || "part")} ${p.size_mb ? p.size_mb + " MB" : "剩余"}"></i>`;
+    return `<i class="seg${i % 3}" style="flex:${pct}" title="${escapeHtml(p.name || "part")} ${p.size_mb ? p.size_mb + " MB" : t("in.rest")}"></i>`;
   }).join("")}</div>`;
 }
 
@@ -1067,22 +1070,22 @@ function renderPartRow(p, i) {
   const flags = String(p.flags || "");
   return `<div class="editor-item part-row">
     <div class="editor-grid">
-      <div><label>名称</label><input class="p-name" value="${escapeHtml(p.name || "")}" placeholder="root"></div>
-      <div><label>文件系统</label><select class="p-fs">${opts(FS_OPTS, p.fs)}</select></div>
-      <div><label>挂载点</label><select class="p-mount">
-        <option value="" ${!p.mount ? "selected" : ""}>不挂载</option>
+      <div><label>${t("in.partName")}</label><input class="p-name" value="${escapeHtml(p.name || "")}" placeholder="root"></div>
+      <div><label>${t("in.fs")}</label><select class="p-fs">${opts(FS_OPTS, p.fs)}</select></div>
+      <div><label>${t("in.mount")}</label><select class="p-mount">
+        <option value="" ${!p.mount ? "selected" : ""}>${t("in.nomount")}</option>
         ${opts(MOUNT_OPTS, p.mount)}
       </select></div>
-      <div><label>大小 (MB)</label>
+      <div><label>${t("in.size")}</label>
         <input class="p-size" type="number" min="0" value="${p.size_mb || ""}" ${rest ? "disabled" : ""} placeholder="512">
       </div>
     </div>
     <div class="chk-row">
-      <label><input type="checkbox" class="p-rest" ${rest ? "checked" : ""}> 使用剩余空间</label>
+      <label><input type="checkbox" class="p-rest" ${rest ? "checked" : ""}> ${t("in.useRest")}</label>
       <label><input type="checkbox" class="f-esp" ${flags.includes("esp") ? "checked" : ""}> ESP</label>
       <label><input type="checkbox" class="f-bios" ${flags.includes("bios_grub") ? "checked" : ""}> BIOS GRUB</label>
       <label><input type="checkbox" class="f-boot" ${flags.includes("boot") ? "checked" : ""}> boot</label>
-      <button type="button" class="ghost danger-lite" data-del-part="${i}">删除</button>
+      <button type="button" class="ghost danger-lite" data-del-part="${i}">${t("btn.delete")}</button>
     </div>
   </div>`;
 }
@@ -1102,62 +1105,62 @@ function renderNicRow(n, i, invNics, allNics) {
   const parentOpts = parents.map(p => `<option value="${escapeHtml(p)}" ${p === n.parent ? "selected" : ""}>${escapeHtml(p)}</option>`).join("");
   const members = n.bond_members || [];
   const methodSel = `<select class="n-method">
-          <option value="dhcp" ${n.method === "dhcp" || !n.method ? "selected" : ""}>DHCP（自动）</option>
-          <option value="static" ${staticOn ? "selected" : ""}>静态地址</option>
-          <option value="none" ${n.method === "none" ? "selected" : ""}>不配置地址（给 VLAN/Bond 用）</option>
+          <option value="dhcp" ${n.method === "dhcp" || !n.method ? "selected" : ""}>${t("in.dhcp")}</option>
+          <option value="static" ${staticOn ? "selected" : ""}>${t("in.static")}</option>
+          <option value="none" ${n.method === "none" ? "selected" : ""}>${t("in.noaddr")}</option>
         </select>`;
   const staticBox = `<div class="static-fields ${staticOn ? "" : "hidden"}">
       <div class="editor-grid">
-        <div><label>IP 地址</label><input class="n-ip" value="${escapeHtml(n.ip || "")}" placeholder="10.0.0.20" inputmode="decimal"></div>
-        <div><label>前缀长度</label><select class="n-prefix">${opts(PREFIX_OPTS, n.prefix || "24", v => "/" + v)}</select></div>
-        <div><label>网关</label><input class="n-gw" value="${escapeHtml(n.gateway || "")}" placeholder="10.0.0.1" inputmode="decimal"></div>
-        <div><label>主 DNS</label><input class="n-dns1" value="${escapeHtml(n.dns1 || "")}" placeholder="8.8.8.8"></div>
-        <div><label>备 DNS</label><input class="n-dns2" value="${escapeHtml(n.dns2 || "")}" placeholder="1.1.1.1"></div>
+        <div><label>${t("in.ip")}</label><input class="n-ip" value="${escapeHtml(n.ip || "")}" placeholder="10.0.0.20" inputmode="decimal"></div>
+        <div><label>${t("in.prefix")}</label><select class="n-prefix">${opts(PREFIX_OPTS, n.prefix || "24", v => "/" + v)}</select></div>
+        <div><label>${t("in.gw")}</label><input class="n-gw" value="${escapeHtml(n.gateway || "")}" placeholder="10.0.0.1" inputmode="decimal"></div>
+        <div><label>${t("in.dns1")}</label><input class="n-dns1" value="${escapeHtml(n.dns1 || "")}" placeholder="8.8.8.8"></div>
+        <div><label>${t("in.dns2")}</label><input class="n-dns2" value="${escapeHtml(n.dns2 || "")}" placeholder="1.1.1.1"></div>
       </div>
     </div>`;
   let body = "";
   if (kind === "bond") {
     body = `<div class="editor-grid">
-      <div><label>Bond 名称</label><input class="n-name" value="${escapeHtml(n.name || "bond0")}" placeholder="bond0"></div>
-      <div><label>模式</label><select class="n-bond-mode">${opts(BOND_MODES, n.bond_mode || "802.3ad")}</select></div>
-      <div><label>地址获取</label>${methodSel}</div>
+      <div><label>${t("in.bondName")}</label><input class="n-name" value="${escapeHtml(n.name || "bond0")}" placeholder="bond0"></div>
+      <div><label>${t("in.mode")}</label><select class="n-bond-mode">${opts(BOND_MODES, n.bond_mode || "802.3ad")}</select></div>
+      <div><label>${t("in.addrGet")}</label>${methodSel}</div>
     </div>
-    <div class="full" style="margin-top:8px"><label>成员网卡</label>
-      <div class="member-list">${invNics.length ? invNics.map(x => `<label><input type="checkbox" class="n-member" value="${escapeHtml(x.name)}" ${members.includes(x.name) ? "checked" : ""}> ${escapeHtml(x.name)}${x.mac ? " · " + escapeHtml(x.mac) : ""}</label>`).join("") : `<span class="hint">机器尚未上报网卡</span>`}</div>
+    <div class="full" style="margin-top:8px"><label>${t("in.members")}</label>
+      <div class="member-list">${invNics.length ? invNics.map(x => `<label><input type="checkbox" class="n-member" value="${escapeHtml(x.name)}" ${members.includes(x.name) ? "checked" : ""}> ${escapeHtml(x.name)}${x.mac ? " · " + escapeHtml(x.mac) : ""}</label>`).join("") : `<span class="hint">${t("in.noNicInv")}</span>`}</div>
     </div>
     ${staticBox}`;
   } else if (kind === "vlan") {
     body = `<div class="editor-grid">
-      <div><label>父接口</label><select class="n-parent">${parentOpts || `<option value="${escapeHtml(n.parent || "eth0")}">${escapeHtml(n.parent || "eth0")}</option>`}</select></div>
-      <div><label>VLAN ID</label><input class="n-vlan" type="number" min="1" max="4094" value="${escapeHtml(String(n.vlan_id || ""))}" placeholder="100"></div>
-      <div><label>接口名</label><input class="n-name" value="${escapeHtml(n.name || "")}" placeholder="自动 parent.ID"></div>
-      <div><label>地址获取</label>${methodSel}</div>
+      <div><label>${t("in.parent")}</label><select class="n-parent">${parentOpts || `<option value="${escapeHtml(n.parent || "eth0")}">${escapeHtml(n.parent || "eth0")}</option>`}</select></div>
+      <div><label>${t("in.vlanId")}</label><input class="n-vlan" type="number" min="1" max="4094" value="${escapeHtml(String(n.vlan_id || ""))}" placeholder="100"></div>
+      <div><label>${t("in.ifname")}</label><input class="n-name" value="${escapeHtml(n.name || "")}" placeholder="${t("in.ifAuto")}"></div>
+      <div><label>${t("in.addrGet")}</label>${methodSel}</div>
     </div>
     ${staticBox}`;
   } else {
     body = `<div class="editor-grid">
-      <div><label>网卡</label>
+      <div><label>${t("in.nic")}</label>
         <select class="n-name">
           ${invNics.length ? nicOpts : `<option value="${escapeHtml(n.name || "eth0")}">${escapeHtml(n.name || "eth0")}</option>`}
         </select>
         <input type="hidden" class="n-mac" value="${escapeHtml(n.mac || (invNics.find(x => x.name === n.name) || {}).mac || "")}">
       </div>
-      <div><label>地址获取</label>${methodSel}</div>
+      <div><label>${t("in.addrGet")}</label>${methodSel}</div>
     </div>
     ${staticBox}`;
   }
   return `<div class="editor-item nic-row">
     <div class="editor-grid">
-      <div><label>类型</label>
+      <div><label>${t("in.kind")}</label>
         <select class="n-kind">
-          <option value="ethernet" ${kind === "ethernet" ? "selected" : ""}>物理网卡</option>
+          <option value="ethernet" ${kind === "ethernet" ? "selected" : ""}>${t("in.phys")}</option>
           <option value="bond" ${kind === "bond" ? "selected" : ""}>Bond</option>
           <option value="vlan" ${kind === "vlan" ? "selected" : ""}>VLAN</option>
         </select>
       </div>
     </div>
     ${body}
-    <div class="chk-row"><button type="button" class="ghost danger-lite" data-del-nic="${i}">删除</button></div>
+    <div class="chk-row"><button type="button" class="ghost danger-lite" data-del-nic="${i}">${t("btn.delete")}</button></div>
   </div>`;
 }
 
@@ -1240,159 +1243,159 @@ function renderInstall() {
   const wimIdx = d.wim_index || defaultWIMIndex(img);
   const step2Linux = `
       <div class="tpl-block">
-        <label>账号模板</label>
+        <label>${t("in.acctTpl")}</label>
         <div class="tpl-row">
           ${tplChipHTML(credTemplates("account"), d.account_tpl)}
-          <button type="button" class="ghost" id="in-save-acct">保存当前为账号模板</button>
-          <button type="button" class="ghost" id="in-manage-tpl">管理模板</button>
+          <button type="button" class="ghost" id="in-save-acct">${t("in.saveAcct")}</button>
+          <button type="button" class="ghost" id="in-manage-tpl">${t("in.manageTpl")}</button>
         </div>
       </div>
       <div class="row">
-        <div><label>登录用户</label>
+        <div><label>${t("in.loginUser")}</label>
           <select id="in-user">
             ${opts(userPresets, userKnown ? d.username : "root")}
-            <option value="__custom" ${userKnown ? "" : "selected"}>自定义…</option>
+            <option value="__custom" ${userKnown ? "" : "selected"}>${t("in.custom")}</option>
           </select>
-          <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="用户名" style="margin-top:8px">
+          <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="${t("in.username")}" style="margin-top:8px">
         </div>
-        <div><label>登录密码</label><input id="in-pass" type="password" value="${escapeHtml(d.password)}" placeholder="建议同时配置公钥"></div>
+        <div><label>${t("in.loginPass")}</label><input id="in-pass" type="password" value="${escapeHtml(d.password)}" placeholder="${t("in.passHintKey")}"></div>
       </div>
       <div class="tpl-block">
-        <label>密钥模板</label>
+        <label>${t("in.keyTpl")}</label>
         <div class="tpl-row">
           ${tplChipHTML(credTemplates("key"), d.key_tpl)}
-          <button type="button" class="ghost" id="in-save-key">保存当前公钥为模板</button>
+          <button type="button" class="ghost" id="in-save-key">${t("in.saveKey")}</button>
         </div>
       </div>
-      <label>SSH 公钥</label>
+      <label>${t("in.ssh")}</label>
       <div id="in-keys-box" class="editor-list">
         ${(d.ssh_keys.length ? d.ssh_keys : [""]).map((k, i) => `
           <div class="key-row">
-            <input class="ssh-key" value="${escapeHtml(k)}" placeholder="ssh-ed25519 或 ssh-rsa 开头的公钥">
-            <button type="button" class="ghost danger-lite" data-del-key="${i}">删除</button>
+            <input class="ssh-key" value="${escapeHtml(k)}" placeholder="${t("ph.ssh")}">
+            <button type="button" class="ghost danger-lite" data-del-key="${i}">${t("btn.delete")}</button>
           </div>`).join("")}
       </div>
       <div class="actions" style="margin-top:10px">
-        <button type="button" id="in-add-key">添加公钥</button>
-        <button type="button" id="in-import-key">导入 .pub 文件</button>
+        <button type="button" id="in-add-key">${t("in.addKey")}</button>
+        <button type="button" id="in-import-key">${t("in.importKey")}</button>
         <input type="file" id="in-key-file" class="hidden" accept=".pub,text/plain">
       </div>
-      <p class="hint">点模板即可填入。账号模板会写入用户名和密码；若模板带公钥也会一并填入。密钥模板会替换下方公钥列表。</p>
+      <p class="hint">${t("in.step2Hint")}</p>
     `;
   const step2Win = `
       <div class="tpl-block">
-        <label>账号模板</label>
+        <label>${t("in.acctTpl")}</label>
         <div class="tpl-row">
           ${tplChipHTML(credTemplates("account"), d.account_tpl)}
-          <button type="button" class="ghost" id="in-save-acct">保存当前为账号模板</button>
-          <button type="button" class="ghost" id="in-manage-tpl">管理模板</button>
+          <button type="button" class="ghost" id="in-save-acct">${t("in.saveAcct")}</button>
+          <button type="button" class="ghost" id="in-manage-tpl">${t("in.manageTpl")}</button>
         </div>
       </div>
       <div class="row">
-        <div><label>登录用户</label>
+        <div><label>${t("in.loginUser")}</label>
           <select id="in-user">
             ${opts(userPresets, userKnown ? d.username : "Administrator")}
-            <option value="__custom" ${userKnown ? "" : "selected"}>自定义…</option>
+            <option value="__custom" ${userKnown ? "" : "selected"}>${t("in.custom")}</option>
           </select>
-          <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="用户名" style="margin-top:8px">
+          <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="${t("in.username")}" style="margin-top:8px">
         </div>
-        <div><label>登录密码</label><input id="in-pass" type="password" value="${escapeHtml(d.password)}" placeholder="必填，写入 unattend"></div>
+        <div><label>${t("in.loginPass")}</label><input id="in-pass" type="password" value="${escapeHtml(d.password)}" placeholder="${t("in.passHintWin")}"></div>
       </div>
-      <p class="hint">Windows Server 没有 SSH 公钥注入。密码写入应答文件；默认开启远程桌面。主机名最长 15 个字符（A-Z 0-9 -）。</p>
+      <p class="hint">${t("in.winHint")}</p>
     `;
   const step3Win = `
       <div class="row">
-        <div><label>WIM 版本</label>
+        <div><label>${t("in.wim")}</label>
           <select id="in-wim">
             ${wimList.length ? wimList.map(x => `<option value="${x.index}" ${Number(wimIdx) === Number(x.index) ? "selected" : ""}>${escapeHtml(String(x.index))} · ${escapeHtml(x.name || x.edition || x.flags || ("Image " + x.index))}</option>`).join("") : `<option value="${wimIdx}">${wimIdx}</option>`}
           </select>
-          <p class="hint">install.wim 里的 edition。默认偏 Standard（带桌面），不要选 Core 除非你就是要无 GUI。</p>
+          <p class="hint">${t("in.wimHint")}</p>
         </div>
-        <div><label>产品密钥（可选）</label>
-          <input id="in-pkey" value="${escapeHtml(d.product_key || "")}" placeholder="评估版可留空">
+        <div><label>${t("in.pkey")}</label>
+          <input id="in-pkey" value="${escapeHtml(d.product_key || "")}" placeholder="${t("in.pkeyPh")}">
         </div>
       </div>
-      <div><label>目标磁盘</label>
+      <div><label>${t("in.disk")}</label>
         <select id="in-disk">
-          <option value="" ${!d.disk ? "selected" : ""}>WinPE 磁盘 0（通常是第一块盘）</option>
+          <option value="" ${!d.disk ? "selected" : ""}>${t("in.disk0")}</option>
           ${disks.map(x => `<option value="${escapeHtml(x.path)}" ${x.path === d.disk ? "selected" : ""}>${escapeHtml(x.path)} · ${fmtBytes(x.size_b)} · ${escapeHtml(x.model || "")}</option>`).join("")}
         </select>
-        <p class="hint">Windows PE 用 diskpart 盘号，不是 Linux 的 /dev/sda。/dev/sda ≈ disk 0，/dev/sdb ≈ disk 1。选错会清错盘。</p>
+        <p class="hint">${t("in.diskWinHint")}</p>
       </div>
       <div class="editor-head" style="margin-top:18px">
-        <h4>网卡</h4>
+        <h4>${t("in.nic")}</h4>
         <div class="actions">
-          <button type="button" class="ghost" id="in-add-nic">添加网卡</button>
+          <button type="button" class="ghost" id="in-add-nic">${t("in.addNic")}</button>
         </div>
       </div>
       <div id="in-nics-box">${(d.nics.length ? d.nics.filter(n => (n.kind || "ethernet") === "ethernet") : [blankNic()]).map((n, i) => renderNicRow({ ...n, kind: "ethernet" }, i, nics, d.nics)).join("")}</div>
-      <p class="hint">WinPE 下载 install.wim 时走 DHCP。装完后的静态 IP 写入 unattend（按 MAC）。本轮不支持 Bond / VLAN。</p>
+      <p class="hint">${t("in.winNetHint")}</p>
     `;
   const step3Linux = `
-      <div><label>目标磁盘</label>
+      <div><label>${t("in.disk")}</label>
         <select id="in-disk">
-          <option value="" ${!d.disk ? "selected" : ""}>自动选择最大磁盘</option>
+          <option value="" ${!d.disk ? "selected" : ""}>${t("in.autoDisk")}</option>
           ${disks.map(x => `<option value="${escapeHtml(x.path)}" ${x.path === d.disk ? "selected" : ""}>${escapeHtml(x.path)} · ${fmtBytes(x.size_b)} · ${escapeHtml(x.model || "")}</option>`).join("")}
         </select>
-        <p class="hint">${disks.length ? "来自 Agent 上报的库存" : "机器尚未上报磁盘时，将自动选最大盘"}</p>
+        <p class="hint">${disks.length ? t("in.diskFromAgent") : t("in.diskNoInv")}</p>
       </div>
-      ${whole ? `<p class="hint">当前镜像是整盘镜像，写入后保留镜像内分区，无需再画分区表。</p>` : `
+      ${whole ? `<p class="hint">${t("in.wholeHint")}</p>` : `
       <div class="editor-head">
-        <h4>分区方案</h4>
-        <button type="button" class="ghost" id="in-reset-parts">按固件恢复默认</button>
+        <h4>${t("in.parts")}</h4>
+        <button type="button" class="ghost" id="in-reset-parts">${t("in.resetParts")}</button>
       </div>
       ${partBar(d.partitions, (disks.find(x => x.path === d.disk) || disks[0] || {}).size_b)}
       <div id="in-parts-box">${d.partitions.map((p, i) => renderPartRow(p, i)).join("")}</div>
-      <button type="button" id="in-add-part" style="margin-top:8px">添加分区</button>
+      <button type="button" id="in-add-part" style="margin-top:8px">${t("in.addPart")}</button>
       `}
       <div class="editor-head" style="margin-top:18px">
-        <h4>网卡</h4>
+        <h4>${t("in.nic")}</h4>
         <div class="actions">
-          <button type="button" class="ghost" id="in-add-nic">添加网卡</button>
-          <button type="button" class="ghost" id="in-add-bond">添加 Bond</button>
-          <button type="button" class="ghost" id="in-add-vlan">添加 VLAN</button>
+          <button type="button" class="ghost" id="in-add-nic">${t("in.addNic")}</button>
+          <button type="button" class="ghost" id="in-add-bond">${t("in.addBond")}</button>
+          <button type="button" class="ghost" id="in-add-vlan">${t("in.addVlan")}</button>
         </div>
       </div>
       <div id="in-nics-box">${(d.nics.length ? d.nics : [blankNic()]).map((n, i) => renderNicRow(n, i, nics, d.nics)).join("")}</div>
-      <p class="hint">${nics.length ? "物理网卡按 MAC 绑定，装完后改名为 nic0 / nic1，不沿用 RAMOS 里的 ens* / eth*。" : "尚未上报网卡时默认 DHCP。"} 可组合 Bond 和 VLAN（VLAN 可建在 Bond 上）。配置按镜像系统和版本写入（Ubuntu netplan / Debian ifupdown / Rocky NetworkManager）。</p>
+      <p class="hint">${nics.length ? t("in.netHintInv") : t("in.netHintDhcp")}${t("in.netHintBond")}</p>
     `;
   const stepBody = step === 1 ? `
       <div class="row">
-        <div><label>机器</label>
-          <select id="in-m">${machines.length ? machines.map(x => `<option value="${x.id}" ${x.id === d.machine_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.mac)}</option>`).join("") : `<option value="">（还没有注册的机器）</option>`}</select>
+        <div><label>${t("in.machine")}</label>
+          <select id="in-m">${machines.length ? machines.map(x => `<option value="${x.id}" ${x.id === d.machine_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.mac)}</option>`).join("") : `<option value="">${t("in.noMachine")}</option>`}</select>
           <p class="hint">${machineHint(m)}</p>
         </div>
-        <div><label>镜像</label>
-          <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(osLabel(x) || x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>
+        <div><label>${t("in.image")}</label>
+          <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(osLabel(x) || x.kind || "")}</option>`).join("") : `<option value="">${t("in.noImage")}</option>`}</select>
           <p class="hint">${imageHint(img, d.firmware)}</p>
         </div>
       </div>
       <div class="row3">
-        <div><label>主机名</label><input id="in-host" value="${escapeHtml(d.hostname)}" placeholder="${win ? "最多15字符" : "node-01"}"></div>
-        <div><label>固件</label>
+        <div><label>${t("in.host")}</label><input id="in-host" value="${escapeHtml(d.hostname)}" placeholder="${win ? t("in.hostPh") : "node-01"}"></div>
+        <div><label>${t("m.fw")}</label>
           <select id="in-fw">
             <option value="uefi" ${d.firmware === "uefi" ? "selected" : ""}>UEFI</option>
-            <option value="bios" ${d.firmware === "bios" ? "selected" : ""}>传统 BIOS</option>
+            <option value="bios" ${d.firmware === "bios" ? "selected" : ""}>${t("m.fw.bios")}</option>
           </select>
         </div>
-        <div><label>时区</label><select id="in-tz">${opts(TIMEZONES, d.timezone)}</select></div>
+        <div><label>${t("in.tz")}</label><select id="in-tz">${opts(TIMEZONES, d.timezone)}</select></div>
       </div>
-      <label class="chk"><input type="checkbox" id="in-reboot" ${d.reboot ? "checked" : ""}> 装完重启并切到本地磁盘引导</label>
+      <label class="chk"><input type="checkbox" id="in-reboot" ${d.reboot ? "checked" : ""}> ${t("in.reboot")}</label>
     ` : step === 2 ? (win ? step2Win : step2Linux) : (win ? step3Win : step3Linux);
 
   view.innerHTML = `
     <div class="panel">
       <div class="steps">
-        <span data-step="1" class="${step === 1 ? "on" : ""}">1 机器 / 镜像</span>
-        <span data-step="2" class="${step === 2 ? "on" : ""}">${win ? "2 账号" : "2 账号与密钥"}</span>
-        <span data-step="3" class="${step === 3 ? "on" : ""}">${win ? "3 版本 / 磁盘 / 网卡" : "3 磁盘与网卡"}</span>
+        <span data-step="1" class="${step === 1 ? "on" : ""}">${t("in.step1")}</span>
+        <span data-step="2" class="${step === 2 ? "on" : ""}">${win ? t("in.step2win") : t("in.step2")}</span>
+        <span data-step="3" class="${step === 3 ? "on" : ""}">${win ? t("in.step3win") : t("in.step3")}</span>
       </div>
       ${stepBody}
       <div class="actions" style="margin-top:18px">
-        ${step > 1 ? `<button type="button" id="in-prev">上一步</button>` : ""}
-        ${step < 3 ? `<button type="button" class="primary" id="in-next">下一步</button>` : `
-          <button type="button" class="primary" id="in-go">下发装机任务</button>
-          <button type="button" id="in-pxe">同时 BMC PXE 重启</button>`}
+        ${step > 1 ? `<button type="button" id="in-prev">${t("in.prev")}</button>` : ""}
+        ${step < 3 ? `<button type="button" class="primary" id="in-next">${t("in.next")}</button>` : `
+          <button type="button" class="primary" id="in-go">${t("in.go")}</button>
+          <button type="button" id="in-pxe">${t("in.pxe")}</button>`}
       </div>
     </div>`;
 
@@ -1403,9 +1406,9 @@ function renderInstall() {
   const next = $("#in-next");
   if (next) next.onclick = () => {
     collectInstallForm();
-    if (step === 1 && (!installDraft.machine_id || !installDraft.image_id)) return alert("请选择机器和镜像");
+    if (step === 1 && (!installDraft.machine_id || !installDraft.image_id)) return alert(t("in.needBoth"));
     if (step === 2 && isWindowsImage(selectedImage()) && !(installDraft.password || "").trim()) {
-      return alert("Windows Server 必须填写登录密码");
+      return alert(t("in.needWinPass"));
     }
     installDraft.step = step + 1;
     renderInstall();
@@ -1565,38 +1568,38 @@ function renderInstall() {
 
   const submit = async (pxe) => {
     const body = buildInstallBody();
-    if (!body.machine_id || !body.image_id) return alert("请选择机器和镜像");
+    if (!body.machine_id || !body.image_id) return alert(t("in.needBoth"));
     const img = selectedImage();
     const win = isWindowsImage(img);
     if (win) {
-      if (!(body.password || "").trim()) return alert("Windows Server 必须填写登录密码");
+      if (!(body.password || "").trim()) return alert(t("in.needWinPass"));
     } else if (img && img.inspect) {
       const inx = img.inspect;
-      if (inx.status === "error") return alert("镜像检测失败：" + (inx.message || "不可启动"));
+      if (inx.status === "error") return alert(t("in.imgFail", { msg: inx.message || t("insp.bad") }));
       if (isWholeDiskImage(img)) {
         if (body.firmware === "bios" && inx.status !== "skipped" && !inx.boot_bios) {
-          return alert("该镜像没有 BIOS 引导，请改选 UEFI 或更换镜像");
+          return alert(t("in.noBios"));
         }
         if (body.firmware !== "bios" && inx.status !== "skipped" && !inx.boot_uefi) {
-          return alert("该镜像没有 UEFI ESP，请改选 BIOS 或更换镜像");
+          return alert(t("in.noUefi"));
         }
         const disks = machineDisks(selectedMachine());
         const disk = body.disk ? disks.find(x => x.path === body.disk) : disks.slice().sort((a, b) => (b.size_b || 0) - (a.size_b || 0))[0];
         if (disk && disk.size_b && inx.virtual_size_b && inx.virtual_size_b > disk.size_b) {
-          return alert("镜像虚拟容量大于目标磁盘");
+          return alert(t("in.tooBig"));
         }
       }
     }
     if (!win && !isWholeDiskImage(img)) {
       const roots = (body.partitions || []).filter(p => p.mount === "/");
-      if (roots.length !== 1) return alert("请恰好指定一个挂载为 / 的根分区");
+      if (roots.length !== 1) return alert(t("in.needRoot"));
     }
     for (const n of (body.network && body.network.nics) || []) {
       if (n.kind === "vlan") {
-        if (!n.vlan_id || n.vlan_id < 1 || n.vlan_id > 4094) return alert("VLAN ID 需要在 1–4094");
-        if (!n.parent) return alert("VLAN 需要选择父接口（物理网卡或 Bond）");
+        if (!n.vlan_id || n.vlan_id < 1 || n.vlan_id > 4094) return alert(t("in.badVlan"));
+        if (!n.parent) return alert(t("in.needParent"));
       }
-      if (n.kind === "bond" && !(n.bond_members && n.bond_members.length)) return alert("Bond 请至少勾选一块成员网卡");
+      if (n.kind === "bond" && !(n.bond_members && n.bond_members.length)) return alert(t("in.needMember"));
     }
     try {
       await api("/jobs/install", { method: "POST", body: JSON.stringify(body) });
@@ -1614,25 +1617,25 @@ function renderInstall() {
 function renderStress() {
   view.innerHTML = `
     <div class="panel">
-      <p class="hint">在 RAMOS 内存系统中对 CPU、内存、磁盘、到控制面的网络做压测。机器需已 PXE 进入 Agent。</p>
-      <label>机器</label>
+      <p class="hint">${t("st.hint")}</p>
+      <label>${t("st.machine")}</label>
       <select id="st-m">${(cache.machines||[]).map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join("")}</select>
       <div class="row3" style="margin-top:8px">
         <label><input type="checkbox" class="tg" value="cpu" checked> CPU</label>
-        <label><input type="checkbox" class="tg" value="memory" checked> 内存</label>
-        <label><input type="checkbox" class="tg" value="disk" checked> 硬盘</label>
-        <label><input type="checkbox" class="tg" value="network" checked> 网络</label>
+        <label><input type="checkbox" class="tg" value="memory" checked> ${t("st.mem")}</label>
+        <label><input type="checkbox" class="tg" value="disk" checked> ${t("st.disk")}</label>
+        <label><input type="checkbox" class="tg" value="network" checked> ${t("st.net")}</label>
       </div>
       <div class="row3">
-        <div><label>时长（秒）</label><input id="st-d" value="60"></div>
-        <div><label>CPU 线程（0=全部）</label><input id="st-c" value="0"></div>
-        <div><label>内存占用 %</label><input id="st-mem" value="50"></div>
+        <div><label>${t("st.dur")}</label><input id="st-d" value="60"></div>
+        <div><label>${t("st.cpu")}</label><input id="st-c" value="0"></div>
+        <div><label>${t("st.memPct")}</label><input id="st-mem" value="50"></div>
       </div>
       <div class="row">
-        <div><label>磁盘测试文件</label><input id="st-path" placeholder="/tmp/stress.bin"></div>
-        <div><label>磁盘测试大小 MB</label><input id="st-ds" value="512"></div>
+        <div><label>${t("st.diskFile")}</label><input id="st-path" placeholder="/tmp/stress.bin"></div>
+        <div><label>${t("st.diskMb")}</label><input id="st-ds" value="512"></div>
       </div>
-      <button class="primary" id="st-go" style="margin-top:12px">开始压测</button>
+      <button class="primary" id="st-go" style="margin-top:12px">${t("st.go")}</button>
     </div>`;
   $("#st-go").onclick = async () => {
     const targets = $$(".tg:checked").map(x => x.value);
@@ -1651,15 +1654,15 @@ function renderJobs() {
   view.innerHTML = `
     <div class="panel">
       <table>
-        <thead><tr><th>任务</th><th>机器</th><th>状态</th><th>进度</th><th>信息</th><th></th></tr></thead>
+        <thead><tr><th>${t("j.col.job")}</th><th>${t("j.col.machine")}</th><th>${t("j.col.status")}</th><th>${t("j.col.prog")}</th><th>${t("j.col.msg")}</th><th></th></tr></thead>
         <tbody>${(cache.jobs||[]).length ? (cache.jobs||[]).map(j => `<tr>
           <td>${escapeHtml(j.type)}<div class="hint mono">${escapeHtml(j.id)}</div></td>
           <td class="mono">${escapeHtml(j.machine_id)}</td>
           <td>${badge(j.status)}</td>
           <td class="mono">${j.progress || 0}%<div class="prog"><i style="width:${Math.max(0, Math.min(100, j.progress || 0))}%"></i></div></td>
           <td>${escapeHtml(j.message || "")}</td>
-          <td><button data-j="${j.id}">日志</button></td>
-        </tr>`).join("") : `<tr><td colspan="6" class="empty">NO JOBS · 装机与压测任务会出现在这里</td></tr>`}</tbody>
+          <td><button data-j="${j.id}">${t("j.log")}</button></td>
+        </tr>`).join("") : `<tr><td colspan="6" class="empty">${t("j.empty")}</td></tr>`}</tbody>
       </table>
     </div>`;
   view.onclick = async (ev) => {
@@ -1669,7 +1672,7 @@ function renderJobs() {
     openModal(`<h3>${escapeHtml(j.type)} ${badge(j.status)}</h3>
       <p class="hint">${escapeHtml(j.message || "")}</p>
       ${j.result ? `<pre class="log">${escapeHtml(JSON.stringify(j.result, null, 2))}</pre>` : ""}
-      <pre class="log">${escapeHtml(j.logs || "暂无日志")}</pre>`);
+      <pre class="log">${escapeHtml(j.logs || t("j.nolog"))}</pre>`);
   };
 }
 
@@ -1680,58 +1683,58 @@ async function renderBoot() {
   const st = settings.dhcp_status || {};
   const nics = settings.nics || [];
   const statusBadge = st.running
-    ? `<span class="badge ok">运行中</span>`
-    : (st.error ? `<span class="badge bad">失败</span>` : `<span class="badge">已停止</span>`);
+    ? `<span class="badge ok">${t("boot.running")}</span>`
+    : (st.error ? `<span class="badge bad">${t("boot.fail")}</span>` : `<span class="badge">${t("boot.stopped")}</span>`);
   view.innerHTML = `
     <div class="panel">
-      <h3>控制面地址</h3>
-      <p class="hint">iPXE / RAMOS 必须能访问这个 URL。请填物理机或交换机可达的地址，不要用 127.0.0.1。</p>
+      <h3>${t("boot.urlTitle")}</h3>
+      <p class="hint">${t("boot.urlHint")}</p>
       <div class="row">
         <div><label>Public URL</label><input id="b-url" value="${escapeHtml(settings.public_url || "")}"></div>
-        <div><label>API Token（Agent / 脚本）</label><input id="b-tok" type="password" placeholder="留空不修改"></div>
+        <div><label>${t("boot.token")}</label><input id="b-tok" type="password" placeholder="${t("boot.tokenPh")}"></div>
       </div>
-      <p class="hint">网页用右上角账号登录。Token 只给 RAMOS Agent 和自动化脚本用，不会拦住 iPXE。</p>
-      <button class="primary" id="b-save" style="margin-top:10px">保存</button>
+      <p class="hint">${t("boot.tokenHint")}</p>
+      <button class="primary" id="b-save" style="margin-top:10px">${t("btn.save")}</button>
     </div>
     <div class="panel" style="margin-top:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-        <h3 style="margin:0">内置 DHCP 服务器</h3>
-        <div>${statusBadge} <span class="hint">${st.running ? escapeHtml(st.interface || "") + " · " + escapeHtml(st.listen || "") : escapeHtml(st.error || "未监听")}</span></div>
+        <h3 style="margin:0">${t("boot.dhcpTitle")}</h3>
+        <div>${statusBadge} <span class="hint">${st.running ? escapeHtml(st.interface || "") + " · " + escapeHtml(st.listen || "") : escapeHtml(st.error || t("boot.idle"))}</span></div>
       </div>
-      <p class="hint">选择连接装机交换机 / PXE 网段的<strong>接入网卡</strong>，DHCP 只在这块网卡上应答。需要绑定 UDP 67，Linux 请用 root，Windows 请以管理员运行。</p>
-      <label><input type="checkbox" id="d-on" ${dhcp.enabled ? "checked" : ""}> 启用内置 DHCP</label>
-      <label>接入网卡</label>
+      <p class="hint">${t("boot.dhcpHint")}</p>
+      <label><input type="checkbox" id="d-on" ${dhcp.enabled ? "checked" : ""}> ${t("boot.enable")}</label>
+      <label>${t("boot.if")}</label>
       <select id="d-if">
-        <option value="">（选择网卡）</option>
+        <option value="">${t("boot.pickIf")}</option>
         ${nics.map(n => {
-          const ips = (n.ipv4 || []).map(x => x.cidr).join(", ") || "无 IPv4";
+          const ips = (n.ipv4 || []).map(x => x.cidr).join(", ") || t("boot.noip");
           const sel = n.name === dhcp.interface ? "selected" : "";
           return `<option value="${escapeHtml(n.name)}" ${sel} data-nic="${encodeURIComponent(JSON.stringify(n))}">${escapeHtml(n.name)} · ${escapeHtml(ips)} ${n.up ? "· UP" : "· DOWN"}</option>`;
         }).join("")}
       </select>
       <p class="hint" id="d-if-hint"></p>
       <div class="row3">
-        <div><label>网段</label><input id="d-subnet" value="${escapeHtml(dhcp.subnet || "")}" placeholder="10.0.0.0/24"></div>
-        <div><label>网关</label><input id="d-gw" value="${escapeHtml(dhcp.router || "")}" placeholder="10.0.0.1"></div>
-        <div><label>next-server（TFTP）</label><input id="d-next" value="${escapeHtml(dhcp.next_server || "")}" placeholder="接入网卡 IPv4"></div>
+        <div><label>${t("boot.subnet")}</label><input id="d-subnet" value="${escapeHtml(dhcp.subnet || "")}" placeholder="10.0.0.0/24"></div>
+        <div><label>${t("boot.gw")}</label><input id="d-gw" value="${escapeHtml(dhcp.router || "")}" placeholder="10.0.0.1"></div>
+        <div><label>${t("boot.next")}</label><input id="d-next" value="${escapeHtml(dhcp.next_server || "")}" placeholder="${t("boot.if")} IPv4"></div>
       </div>
       <div class="row3">
-        <div><label>地址池起始</label><input id="d-start" value="${escapeHtml(dhcp.range_start || "")}"></div>
-        <div><label>地址池结束</label><input id="d-end" value="${escapeHtml(dhcp.range_end || "")}"></div>
-        <div><label>DNS</label><input id="d-dns" value="${escapeHtml(dhcp.dns || "8.8.8.8")}" placeholder="8.8.8.8,1.1.1.1"></div>
+        <div><label>${t("boot.poolStart")}</label><input id="d-start" value="${escapeHtml(dhcp.range_start || "")}"></div>
+        <div><label>${t("boot.poolEnd")}</label><input id="d-end" value="${escapeHtml(dhcp.range_end || "")}"></div>
+        <div><label>${t("boot.dns")}</label><input id="d-dns" value="${escapeHtml(dhcp.dns || "8.8.8.8")}" placeholder="8.8.8.8,1.1.1.1"></div>
       </div>
       <div class="row">
-        <div><label>租约（秒）</label><input id="d-lease" value="${dhcp.lease_sec || 3600}"></div>
-        <div><label>监听地址</label><input id="d-listen" value="${escapeHtml(dhcp.listen_addr || "0.0.0.0:67")}"></div>
+        <div><label>${t("boot.lease")}</label><input id="d-lease" value="${dhcp.lease_sec || 3600}"></div>
+        <div><label>${t("boot.listen")}</label><input id="d-listen" value="${escapeHtml(dhcp.listen_addr || "0.0.0.0:67")}"></div>
       </div>
       <div class="actions" style="margin-top:14px">
-        <button class="primary" id="d-apply">保存并应用</button>
-        <button id="d-stop">停止 DHCP</button>
+        <button class="primary" id="d-apply">${t("boot.apply")}</button>
+        <button id="d-stop">${t("boot.stop")}</button>
       </div>
     </div>
     <div class="panel" style="margin-top:14px">
-      <h3>沿用现有 DHCP 时的配置片段</h3>
-      <p class="hint">若不启用内置 DHCP：先下发本机 TFTP 上的 undionly.kpxe / ipxe.efi；客户端已成为 iPXE 后再给 <span class="mono">boot.ipxe</span>（仍走本机 TFTP，不访问公网）。</p>
+      <h3>${t("boot.snipTitle")}</h3>
+      <p class="hint">${t("boot.snipHint")}</p>
       <pre class="log"># ISC dhcpd
 next-server ${escapeHtml((settings.public_url || "http://10.0.0.1:8080").replace(/^https?:\/\//,"").split("/")[0].split(":")[0])};
 if exists user-class and option user-class = "iPXE" {
@@ -1749,16 +1752,16 @@ dhcp-match=set:efi64,option:client-arch,7
 dhcp-boot=tag:!ipxe,tag:efi64,ipxe.efi
 dhcp-boot=tag:!ipxe,undionly.kpxe
 </pre>
-      <p class="hint">TFTP ${escapeHtml(settings.tftp_listen || "")} · 首次部署请执行 <span class="mono">rackauto bootstrap</span></p>
+      <p class="hint">${t("boot.tftp", { addr: escapeHtml(settings.tftp_listen || "") })}</p>
     </div>`;
   const fillFromNic = (nic) => {
     const a = (nic.ipv4 || [])[0];
     const hint = $("#d-if-hint");
     if (!a) {
-      hint.textContent = "这块网卡没有 IPv4。请先给接入网卡配上 PXE 网段地址，或手工填写网段 / next-server。";
+      hint.textContent = t("boot.noIfIp");
       return;
     }
-    hint.textContent = `将按 ${a.cidr} 填写网段、网关与地址池（可再改）。网关必须和地址池同一网段。`;
+    hint.textContent = t("boot.fillHint", { cidr: a.cidr });
     $("#d-subnet").value = a.network;
     $("#d-next").value = a.address;
     $("#d-gw").value = a.address;
@@ -1791,7 +1794,7 @@ dhcp-boot=tag:!ipxe,undionly.kpxe
   $("#b-save").onclick = async () => {
     try {
       await api("/settings", { method: "PUT", body: JSON.stringify({ public_url: $("#b-url").value, api_token: $("#b-tok").value }) });
-      alert("已保存");
+      alert(t("boot.saved"));
     } catch (e) { alert(e.message); }
   };
   $("#d-apply").onclick = async () => {
@@ -1811,7 +1814,7 @@ dhcp-boot=tag:!ipxe,undionly.kpxe
 function openModal(html) {
   const m = $("#modal");
   m.classList.remove("hidden");
-  m.innerHTML = `<div class="sheet">${html}<div class="actions" style="margin-top:12px"><button class="ghost" id="modal-x">关闭</button></div></div>`;
+  m.innerHTML = `<div class="sheet">${html}<div class="actions" style="margin-top:12px"><button class="ghost" id="modal-x">${t("btn.close")}</button></div></div>`;
   $("#modal-x").onclick = closeModal;
   m.onclick = (e) => { if (e.target === m) closeModal(); };
 }
@@ -1850,8 +1853,8 @@ async function doLogin() {
     });
     const text = await res.text();
     if (!res.ok) {
-      if (res.status === 401) throw new Error("用户名或密码错误");
-      if (res.status === 429) throw new Error("尝试次数过多，稍后再试");
+      if (res.status === 401) throw new Error(t("login.bad"));
+      if (res.status === 429) throw new Error(t("login.locked"));
       throw new Error(text || res.statusText);
     }
     const out = text ? JSON.parse(text) : {};
@@ -1862,24 +1865,24 @@ async function doLogin() {
     await load();
     render();
   } catch (e) {
-    if (err) err.textContent = e.message || "登录失败";
+    if (err) err.textContent = e.message || t("login.fail");
   }
 }
 
 function accountForm() {
   const cur = ($("#who") && $("#who").textContent !== "—" ? $("#who").textContent : "admin") || "admin";
   openModal(`
-    <h3>控制台账号</h3>
-    <p class="hint">用于登录 Web 管理界面。改完立即生效。iPXE / Agent 不受影响。</p>
-    <label>用户名</label><input id="acc-user" value="${escapeHtml(cur)}" autocomplete="username">
-    <label>当前密码</label><input id="acc-cur" type="password" autocomplete="current-password">
+    <h3>${t("acc.title")}</h3>
+    <p class="hint">${t("acc.hint")}</p>
+    <label>${t("acc.user")}</label><input id="acc-user" value="${escapeHtml(cur)}" autocomplete="username">
+    <label>${t("acc.cur")}</label><input id="acc-cur" type="password" autocomplete="current-password">
     <div class="row">
-      <div><label>新密码</label><input id="acc-new" type="password" placeholder="不改请留空" autocomplete="new-password"></div>
-      <div><label>确认新密码</label><input id="acc-new2" type="password" placeholder="不改请留空" autocomplete="new-password"></div>
+      <div><label>${t("acc.new")}</label><input id="acc-new" type="password" placeholder="${t("acc.keep")}" autocomplete="new-password"></div>
+      <div><label>${t("acc.new2")}</label><input id="acc-new2" type="password" placeholder="${t("acc.keep")}" autocomplete="new-password"></div>
     </div>
     <div class="actions" style="margin-top:14px">
-      <button class="primary" id="acc-save">保存</button>
-      <button class="ghost" id="acc-close">取消</button>
+      <button class="primary" id="acc-save">${t("btn.save")}</button>
+      <button class="ghost" id="acc-close">${t("btn.cancel")}</button>
     </div>`);
   $("#acc-close").onclick = closeModal;
   $("#acc-save").onclick = async () => {
@@ -1887,19 +1890,20 @@ function accountForm() {
     const currentPassword = $("#acc-cur").value;
     const password = $("#acc-new").value;
     const password2 = $("#acc-new2").value;
-    if (!currentPassword) return alert("请填写当前密码");
-    if (!username) return alert("请填写用户名");
-    if (password !== password2) return alert("两次新密码不一致");
+    if (!currentPassword) return alert(t("acc.needCur"));
+    if (!username) return alert(t("acc.needUser"));
+    if (password !== password2) return alert(t("acc.mismatch"));
     try {
       const out = await api("/account", { method: "PUT", body: JSON.stringify({ username, current_password: currentPassword, password }) });
       setWho((out && out.username) || username);
       closeModal();
-      alert("账号已更新");
+      alert(t("acc.ok"));
     } catch (e) { alert(e.message); }
   };
 }
 
 async function boot() {
+  applyChrome();
   fetch("/api/v1/health").then(r => r.json()).then(h => {
     if (h && h.version) {
       setVersion(h.version);
