@@ -120,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /ipxe/cidata/{mac}/vendor-data", s.cidataVendorData)
 	mux.HandleFunc("GET /ipxe/windows/{mac}/{name}", s.serveWindowsIpxeFile)
 	mux.HandleFunc("GET /winpe/wimboot", s.serveWimboot)
+	mux.HandleFunc("GET /winpe/curl.exe", s.serveWinPECurl)
 
 	mux.Handle("/boot/agent/", http.StripPrefix("/boot/agent/", http.FileServer(http.Dir(s.Cfg.AgentDir()))))
 	mux.Handle("/ramos/", http.StripPrefix("/ramos/", http.FileServer(http.Dir(s.Cfg.RAMOSDir()))))

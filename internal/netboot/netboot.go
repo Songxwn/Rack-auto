@@ -316,6 +316,7 @@ initrd --name diskpart.txt ${base}/ipxe/windows/%s/diskpart.txt diskpart.txt
 initrd --name install.cmd ${base}/ipxe/windows/%s/install.cmd install.cmd
 initrd --name complete.json ${base}/ipxe/windows/%s/complete.json complete.json
 initrd --name fail.json ${base}/ipxe/windows/%s/fail.json fail.json
+initrd --name curl.exe ${base}/winpe/curl.exe curl.exe
 boot
 `, job.ID, base, boot, mac, mac, mac, mac, mac, mac)
 }

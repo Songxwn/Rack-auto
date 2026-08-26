@@ -116,13 +116,14 @@ if [ -z "$CTRL" ] || [ -z "$AGENT" ]; then
 fi
 sudo install -m 0755 "$CTRL" /opt/rackauto/bin/rackauto
 sudo install -m 0755 "$AGENT" /opt/rackauto/data/agent/x86_64/rackauto-agent
+[ -f winpe-curl.exe ] && sudo install -m 0755 winpe-curl.exe /opt/rackauto/bin/winpe-curl.exe
 ```
 
 ARM 控制面把 `amd64` 换成 `arm64`，Agent 目录用 `data/agent/aarch64/`。Windows 压缩包是 `.zip`，只适合看 Web，PXE 请换 Linux。
 
 若还要给 ARM 服务器装机，再下一份 `rackauto-linux-arm64.tar.gz`，把其中的 Agent 放到 `data/agent/aarch64/rackauto-agent`。
 
-Release 包里**没有** YAML 和 systemd 单元，接着按 [第 5 节](#5-单独下载源码配置文件) 单独下载即可，不必 `git clone`。以后升级不要重装目录，按 [第 13 节](#13-升级控制面下载二进制覆盖) 下载新包、覆盖这两个二进制即可。
+Release 包里**没有** YAML 和 systemd 单元，接着按 [第 5 节](#5-单独下载源码配置文件) 单独下载即可，不必 `git clone`。以后升级不要重装目录，按 [第 13 节](#13-升级控制面下载二进制覆盖) 下载新包、覆盖二进制即可。
 
 ### B. 从源码编译（可选）
 
@@ -445,7 +446,7 @@ Windows Server **不能**走 RAMOS / qcow2 / cloud-init。下发任务后，该�
 3. 点「检测」：应看到 WIM 版本列表（Standard / Datacenter，Core 或带桌面）。
 4. 也可以先传一张同代 ISO 抽出 WinPE，再单独登记 `install.wim` / `install.esd`（类型 **Windows install.wim / ESD**）；没有 `boot.wim` 时会尝试借用已有 ISO 抽出的 WinPE。
 
-只支持 **x86_64**。官方 WinPE **没有** `curl.exe`，PowerShell 也通常没打进 `boot.wim`（ADK 里是可选组件）。装机脚本下载顺序：curl（若你自己打进 PE）→ `certutil` → `bitsadmin` → 若存在 `powershell.exe` 则 `Invoke-WebRequest -UseBasicParsing`（PE 没有 IE，必须加这个参数）。官方 ISO 多数只能走到 certutil。
+只支持 **x86_64**。官方 WinPE **没有** `curl.exe` / `certutil` / `bitsadmin`。**v0.4.36+** 会把 Release 里的 `winpe-curl.exe` 经 wimboot 压进 `X:\Windows\System32\curl.exe`（静态 Go 程序，支持装机脚本用到的那几个 curl 参数）。控制面启动时把它拷到 `data/winpe/curl.exe`。升级时请把 `winpe-curl.exe` 放到 `rackauto` 旁边。
 
 **向导差异**
 
@@ -660,18 +661,19 @@ sudo journalctl -u rackauto -f
 
 ## 13. 升级控制面（下载二进制覆盖）
 
-升级 = **下载 GitHub Release → 覆盖两个二进制 → 重启进程**。不要在控制面 `go build`，也不要重装整个 `/opt/rackauto`。
+升级 = **下载 GitHub Release → 覆盖控制面、Agent，以及 WinPE 用的 `winpe-curl.exe` → 重启进程**。不要在控制面 `go build`，也不要重装整个 `/opt/rackauto`。
 
 配置、数据库、已上传镜像、RAMOS 的 ISO / `casper.iso` **都不要动**。SQLite 打开后会自己加列。
 
-### 要覆盖哪两个文件
+### 要覆盖哪些文件
 
 | 文件 | 作用 |
 | --- | --- |
 | `rackauto` | 控制面本身（Web、API、PXE、DHCP） |
 | `rackauto-agent` | 机器 PXE 进 RAMOS 之后从控制面下载的 Agent |
+| `winpe-curl.exe` | 压进 WinPE 的 curl（官方 boot.wim 没有 curl/certutil） |
 
-**两个都要换。** 只换控制面时，网页版本号会变，装机仍走旧 Agent（例如仍会覆盖镜像自带的 fstab）。已停在 RAMOS 里的机器要**重新 PXE**，才会下载到新 Agent。
+**都要换。** 只换控制面时，网页版本号会变，装机仍走旧 Agent。Windows 装机还需要 `winpe-curl.exe` 压进 PE。已停在 RAMOS 里的机器要**重新 PXE**，才会下载到新 Agent。
 
 默认安装路径：
 
@@ -713,6 +715,7 @@ fi
 sudo systemctl stop rackauto
 sudo install -m 0755 "$CTRL" /opt/rackauto/bin/rackauto
 sudo install -m 0755 "$AGENT" /opt/rackauto/data/agent/x86_64/rackauto-agent
+[ -f winpe-curl.exe ] && sudo install -m 0755 winpe-curl.exe /opt/rackauto/bin/winpe-curl.exe
 # 若还要给 ARM 机器装机，再解压 arm64 包：
 # sudo install -m 0755 rackauto-agent /opt/rackauto/data/agent/aarch64/rackauto-agent
 sudo systemctl start rackauto
@@ -808,7 +811,7 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 进 RAMOS 后 Agent 会读 DMI 自动上报。已配 **Redfish** 的机器可在「机器」里点「检测」，不进内存系统也能从 BMC 拉。仅 IPMI 时请先 PXE。点 **装机** 会跳到向导并选中该机。
 
 **如何升级到新版本**  
-不要重装、不要编译。按 [第 13 节](#13-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto` 和 `rackauto-agent`，重启控制面。只换其中一个，装机行为不会完整更新。
+不要重装、不要编译。按 [第 13 节](#13-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto`、`rackauto-agent` 和 `winpe-curl.exe`，重启控制面。Windows 装机缺 `winpe-curl.exe` 时 PE 里没有 curl。
 
 **镜像要选系统和版本**  
 Debian 12 和 Ubuntu 24.04 写网卡的方式不同（ifupdown / netplan），Rocky 8 和 9 也不一样（ifcfg / NetworkManager）。登记或上传时选对系统和版本，装机才会写入对应配置。Bond 和 VLAN（含 Bond 上的 VLAN）在装机向导第 3 步添加。自己用 KVM 导出的 qcow2 见 [第 11 节](#11-自己用-kvm-做装机镜像)。
@@ -900,10 +903,10 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 wimboot 只能把文件注到 `X:\Windows\System32`（文件名不能带路径）。旧版把 `startnet.cmd` 写错位置，PE 只跑了自带的 `wpeinit`，装机脚本没启动。请换成 **v0.4.32+** 后再 PXE。若已经停在 `X:\Windows\System32>`，可先执行 `install.cmd` 应急（仍建议升级后重来，旧脚本会去找 `X:\diskpart.txt`）。任务已经废了就先在网页里删掉再重发。
 
 **Windows PE 起来了但 install.wim 下不下来**  
-`public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 走 HTTP 拉 `/images/win/<id>/install.wim`：curl → certutil → bitsadmin → PowerShell `Invoke-WebRequest`（仅当 PE 里有 `powershell.exe`）。装机网必须有 DHCP（静态 IP 只在装完后生效）。
+`public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 用注入的 `curl.exe` 拉 `/images/win/<id>/install.wim`。装机网必须有 DHCP（静态 IP 只在装完后生效）。控制面日志应有 `WinPE curl.exe ...`；浏览器打开 `http://<public_url>/winpe/curl.exe` 应能下载到文件而不是 404。
 
-**Windows PE 报 `'curl.exe' 不是内部或外部命令`**  
-这是官方 boot.wim 的正常情况。请用 **v0.4.33+** 的 `rackauto` 再 PXE，下载会改走 `certutil`；**v0.4.35+** 在 certutil/bitsadmin 都没有时，若 PE 带了 PowerShell 会再用 `Invoke-WebRequest -UseBasicParsing`。官方 ISO 一般没有 PowerShell，不能指望这条。
+**Windows PE 报 `'curl.exe' 不是内部或外部命令` / `'certutil.exe' 不是内部或外部命令`**  
+官方 boot.wim 本来就没有这些工具。请用 **v0.4.36+**，并把 Release 包里的 `winpe-curl.exe` 装到控制面 `rackauto` 同目录后重启。wimboot 会把它压成 `X:\Windows\System32\curl.exe`。任务废了就先在网页里删掉再重发。
 
 **Windows 装完进不了系统 / 停在 bootmgr**  
 向导固件必须和机器一致（UEFI 用 GPT + EFI 分区，BIOS 用 MBR）。看任务是否已经 `bcdboot` 成功。Secure Boot 一般可开（官方 ISO 的 WinPE/Windows 有签名）；若定制 boot.wim 被破坏则先关 Secure Boot。

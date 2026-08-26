@@ -16,6 +16,7 @@ import (
 	"github.com/Songxwn/Rack-auto/internal/netboot"
 	"github.com/Songxwn/Rack-auto/internal/provision"
 	"github.com/Songxwn/Rack-auto/internal/store"
+	"github.com/Songxwn/Rack-auto/internal/winpecurl"
 )
 
 func (s *Server) coerceWindowsImage(img *model.Image) {
@@ -210,6 +211,29 @@ func (s *Server) serveWimboot(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(b)))
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	_, _ = w.Write(b)
+}
+
+func (s *Server) serveWinPECurl(w http.ResponseWriter, r *http.Request) {
+	path := winpecurl.Path(s.Cfg)
+	if path == "" {
+		http.Error(w, "winpe-curl.exe missing; copy it from the Release tarball next to rackauto", http.StatusNotFound)
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", st.Size()))
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeContent(w, r, "curl.exe", st.ModTime(), f)
 }
 
 func (s *Server) imagesHTTP() http.Handler {

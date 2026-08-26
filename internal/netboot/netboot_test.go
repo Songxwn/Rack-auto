@@ -67,6 +67,9 @@ func TestWindowsPEScript(t *testing.T) {
 	if !strings.Contains(out, "wimboot index=1") {
 		t.Fatalf("expected PE image index: %s", out)
 	}
+	if !strings.Contains(out, "--name curl.exe") || !strings.Contains(out, "/winpe/curl.exe") {
+		t.Fatalf("curl.exe must be injected into System32: %s", out)
+	}
 	arm := s.windowsPEScript("http://10.0.0.1:8080", "aa:bb:cc:dd:ee:ff", "arm64", model.Job{ID: "job1"}, model.Image{ID: "img1"}, model.InstallSpec{})
 	if !strings.Contains(arm, "x86_64") {
 		t.Fatalf("%s", arm)

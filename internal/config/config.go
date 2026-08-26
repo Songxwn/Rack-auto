@@ -139,8 +139,9 @@ func (c Config) TFTPDir() string     { return filepath.Join(c.DataDir, "tftp") }
 func (c Config) RAMOSDir() string    { return filepath.Join(c.DataDir, "ramos") }
 func (c Config) AgentDir() string    { return filepath.Join(c.DataDir, "agent") }
 func (c Config) OverlayDir() string  { return filepath.Join(c.DataDir, "apkovl") }
+func (c Config) WinPEDir() string    { return filepath.Join(c.DataDir, "winpe") }
 func (c Config) EnsureDirs() error {
-	for _, d := range []string{c.DataDir, c.ImagesDir(), c.TFTPDir(), c.RAMOSDir(), c.AgentDir(), c.OverlayDir()} {
+	for _, d := range []string{c.DataDir, c.ImagesDir(), c.TFTPDir(), c.RAMOSDir(), c.AgentDir(), c.OverlayDir(), c.WinPEDir()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}

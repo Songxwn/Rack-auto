@@ -116,6 +116,9 @@ func TestUnattendAndDiskpart(t *testing.T) {
 	if !strings.Contains(media.Install, "certutil.exe") || !strings.Contains(media.Install, ":httpget") {
 		t.Fatal("WinPE has no curl by default; install.cmd must fall back to certutil")
 	}
+	if !strings.Contains(media.Install, `curl.exe -fL --retry`) {
+		t.Fatal("install.cmd must call injected curl.exe first")
+	}
 	if !strings.Contains(media.Install, "Invoke-WebRequest") || !strings.Contains(media.Install, "-UseBasicParsing") {
 		t.Fatal("WinPE install.cmd must fall back to PowerShell Invoke-WebRequest")
 	}

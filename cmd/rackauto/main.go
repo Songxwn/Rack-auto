@@ -16,6 +16,7 @@ import (
 	"github.com/Songxwn/Rack-auto/internal/netboot"
 	"github.com/Songxwn/Rack-auto/internal/server"
 	"github.com/Songxwn/Rack-auto/internal/store"
+	"github.com/Songxwn/Rack-auto/internal/winpecurl"
 )
 
 var Version = "dev"
@@ -61,6 +62,11 @@ func main() {
 	}
 	if err := bootstrap.InstallIPXE(cfg.TFTPDir()); err != nil {
 		log.Printf("install bundled iPXE: %v", err)
+	}
+	if err := winpecurl.Install(cfg); err != nil {
+		log.Printf("WinPE curl.exe: %v", err)
+	} else if p := winpecurl.Path(cfg); p != "" {
+		log.Printf("WinPE curl.exe %s", p)
 	}
 	st, err := store.Open(cfg.DBPath())
 	if err != nil {

@@ -33,6 +33,7 @@ jobs:
           mkdir -p dist
           go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto ./cmd/rackauto
           go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-agent ./cmd/rackauto-agent
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/winpe-curl.exe ./cmd/winpe-curl
           (cd dist && sha256sum * > SHA256SUMS)
       - uses: actions/upload-artifact@v7
         with:

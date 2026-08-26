@@ -44,13 +44,14 @@ tar -xzf rackauto-linux-amd64.tar.gz
 install -m 0755 rackauto-linux-amd64 bin/rackauto 2>/dev/null || install -m 0755 rackauto bin/rackauto
 install -m 0755 rackauto-agent-linux-amd64 data/agent/x86_64/rackauto-agent 2>/dev/null \
   || install -m 0755 rackauto-agent data/agent/x86_64/rackauto-agent
+[ -f winpe-curl.exe ] && install -m 0755 winpe-curl.exe bin/winpe-curl.exe
 ```
 
 更完整的 `/opt/rackauto` 安装见 [docs/deploy.md](docs/deploy.md#4-安装控制面)。配置文件不在 Release 包里，按 [单独下载源码配置文件](docs/deploy.md#5-单独下载源码配置文件) 从 GitHub 拉取 YAML 和 systemd 单元即可，不必 clone。
 
 ### 升级（覆盖二进制）
 
-不要 `go build`。到 [Releases](https://github.com/Songxwn/Rack-auto/releases/latest) 下载对应包，**覆盖**控制面和 Agent 两个文件后重启：
+不要 `go build`。到 [Releases](https://github.com/Songxwn/Rack-auto/releases/latest) 下载对应包，**覆盖**控制面、Agent 和 `winpe-curl.exe` 后重启：
 
 ```bash
 # systemd 安装在 /opt/rackauto 时；ARM 把 amd64 换成 arm64
@@ -67,11 +68,12 @@ AGENT=
 sudo systemctl stop rackauto
 sudo install -m 0755 "$CTRL" /opt/rackauto/bin/rackauto
 sudo install -m 0755 "$AGENT" /opt/rackauto/data/agent/x86_64/rackauto-agent
+[ -f winpe-curl.exe ] && sudo install -m 0755 winpe-curl.exe /opt/rackauto/bin/winpe-curl.exe
 sudo systemctl start rackauto
 curl -sS http://127.0.0.1:8080/api/v1/health
 ```
 
-配置、数据库、镜像、ISO 都不要动。两个二进制都要换；已在 RAMOS 里的机器需重新 PXE 才能拿到新 Agent。逐步说明（含文件名带平台后缀的旧包、ARM、Docker）见 [升级教程](docs/deploy.md#13-升级控制面下载二进制覆盖)。
+配置、数据库、镜像、ISO 都不要动。控制面、Agent、`winpe-curl.exe` 都要换；已在 RAMOS 里的机器需重新 PXE 才能拿到新 Agent。逐步说明（含文件名带平台后缀的旧包、ARM、Docker）见 [升级教程](docs/deploy.md#13-升级控制面下载二进制覆盖)。
 
 ### 2. 写一份配置
 
@@ -160,6 +162,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | POST | `/api/v1/dhcp/stop` | 停止内置 DHCP |
 | GET | `/ipxe/boot.ipxe` | iPXE 入口 |
 | GET | `/winpe/wimboot` | Windows PE 加载器（无需登录） |
+| GET | `/winpe/curl.exe` | 注入 WinPE 的 curl（无需登录） |
 | GET | `/ipxe/windows/{mac}/...` | WinPE 脚本 / unattend（无需登录） |
 
 ## 开发
