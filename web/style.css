@@ -398,12 +398,56 @@ pre.log {
   font-size: 11px;
   font-family: var(--mono);
   letter-spacing: 0.08em;
+  cursor: pointer;
 }
 .steps span.on {
   border-color: var(--amber);
   color: var(--amber);
   box-shadow: 0 0 10px rgba(226, 177, 90, 0.2);
 }
+.editor-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 16px 0 8px;
+}
+.editor-head h4 { margin: 0; }
+.editor-list, .editor-item { display: flex; flex-direction: column; gap: 8px; }
+.editor-item {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(62, 230, 200, 0.12);
+  background: rgba(3, 8, 12, 0.45);
+}
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.key-row { display: flex; gap: 8px; align-items: center; }
+.key-row input { flex: 1; }
+.chk-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chk-row label, label.chk { display: inline-flex; align-items: center; margin: 10px 0 0; letter-spacing: 0; }
+button.danger-lite {
+  border-color: rgba(255, 107, 122, 0.35);
+  color: #ffb4bc;
+  background: transparent;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.part-bar {
+  display: flex; gap: 3px; height: 14px; margin: 8px 0 12px;
+  background: rgba(62, 230, 200, 0.06);
+  border: 1px solid var(--line);
+}
+.part-bar i { display: block; min-width: 8px; }
+.part-bar .seg0 { background: linear-gradient(90deg, var(--cyan), #1a8f7c); }
+.part-bar .seg1 { background: linear-gradient(90deg, var(--amber), #8a6a28); }
+.part-bar .seg2 { background: linear-gradient(90deg, var(--info), #2a6a9a); }
+.static-fields { margin-top: 8px; }
 select { background: #071016; }
 h3, h4 {
   margin: 0 0 12px;
@@ -433,5 +477,5 @@ h4 { margin-top: 16px; color: var(--amber); }
   .aside-sys, .aside-foot { margin-top: 0; }
   .cards { grid-template-columns: 1fr 1fr; }
   .event { grid-template-columns: 1fr; gap: 2px; }
-  .row, .row3 { grid-template-columns: 1fr; }
+  .row, .row3, .editor-grid { grid-template-columns: 1fr; }
 }

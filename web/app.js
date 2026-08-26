@@ -80,6 +80,7 @@ function setHealth(ok, text) {
 }
 
 function render() {
+  view.onclick = null;
   const fn = { dash: renderDash, machines: renderMachines, images: renderImages, install: renderInstall, stress: renderStress, jobs: renderJobs, boot: renderBoot }[current];
   view.classList.remove("in");
   fn();
@@ -291,6 +292,20 @@ function renderImages() {
   };
 }
 
+const USER_PRESETS = ["ubuntu", "debian", "rocky", "centos", "root"];
+const TIMEZONES = [
+  "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore", "Asia/Tokyo", "Asia/Seoul",
+  "UTC", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles",
+  "Australia/Sydney",
+];
+const FS_OPTS = [
+  ["ext4", "ext4"], ["xfs", "xfs"], ["vfat", "EFI / FAT32"], ["swap", "swap"], ["biosboot", "BIOS boot"],
+];
+const MOUNT_OPTS = ["/", "/boot", "/boot/efi", "/home", "/var", "/tmp"];
+const PREFIX_OPTS = ["8", "16", "24", "25", "26", "27", "28"];
+
+let installDraft = null;
+
 function defaultParts(fw) {
   if (fw === "bios") return [
     { name: "biosboot", size_mb: 1, fs: "biosboot", mount: "", flags: "bios_grub" },
@@ -302,62 +317,445 @@ function defaultParts(fw) {
   ];
 }
 
+function blankNic() {
+  return { name: "", mac: "", method: "dhcp", ip: "", prefix: "24", gateway: "", dns1: "8.8.8.8", dns2: "" };
+}
+
+function blankInstallDraft() {
+  return {
+    step: 1, machine_id: "", image_id: "", hostname: "", username: "ubuntu",
+    password: "", timezone: "Asia/Shanghai", firmware: "uefi", disk: "", reboot: true,
+    ssh_keys: [""], partitions: defaultParts("uefi"), nics: [blankNic()],
+  };
+}
+
+function opts(list, selected, labelFn) {
+  return list.map(v => {
+    const val = Array.isArray(v) ? v[0] : v;
+    const lab = Array.isArray(v) ? v[1] : (labelFn ? labelFn(v) : v);
+    return `<option value="${escapeHtml(val)}" ${val === selected ? "selected" : ""}>${escapeHtml(lab)}</option>`;
+  }).join("");
+}
+
+function selectedMachine() {
+  return (cache.machines || []).find(m => m.id === installDraft.machine_id);
+}
+
+function selectedImage() {
+  return (cache.images || []).find(i => i.id === installDraft.image_id);
+}
+
+function machineDisks(m) {
+  return ((m && m.inventory && m.inventory.disks) || []).filter(d => d.path);
+}
+
+function machineNics(m) {
+  return ((m && m.inventory && m.inventory.nics) || []).filter(n => n.name && !String(n.name).startsWith("lo"));
+}
+
+function isWholeDiskImage(img) {
+  return img && (img.kind === "cloud-disk" || img.kind === "raw-disk");
+}
+
+function applyMachineDefaults() {
+  const m = selectedMachine();
+  if (!m) return;
+  if (m.firmware && m.firmware !== installDraft.firmware) {
+    installDraft.firmware = m.firmware;
+    installDraft.partitions = defaultParts(m.firmware);
+  }
+  if (!installDraft.hostname) installDraft.hostname = m.name || "";
+  const nics = machineNics(m);
+  if (nics.length && !installDraft.nics.some(n => n.name || n.mac)) {
+    installDraft.nics = [{ ...blankNic(), name: nics[0].name, mac: nics[0].mac || "" }];
+  }
+}
+
+function collectInstallForm() {
+  if (!installDraft) return;
+  const g = id => document.getElementById(id);
+  if (g("in-m")) installDraft.machine_id = g("in-m").value;
+  if (g("in-i")) installDraft.image_id = g("in-i").value;
+  if (g("in-host")) installDraft.hostname = g("in-host").value.trim();
+  if (g("in-user")) {
+    const v = g("in-user").value;
+    if (v !== "__custom") installDraft.username = v;
+  }
+  if (g("in-user-custom") && !g("in-user-custom").classList.contains("hidden")) {
+    installDraft.username = g("in-user-custom").value.trim() || installDraft.username;
+  }
+  if (g("in-pass")) installDraft.password = g("in-pass").value;
+  if (g("in-tz")) installDraft.timezone = g("in-tz").value;
+  if (g("in-fw")) installDraft.firmware = g("in-fw").value;
+  if (g("in-disk")) installDraft.disk = g("in-disk").value;
+  if (g("in-reboot")) installDraft.reboot = g("in-reboot").checked;
+  if (g("in-keys-box")) {
+    const keys = $$(".ssh-key").map(el => el.value.trim()).filter(Boolean);
+    installDraft.ssh_keys = keys.length ? keys : [""];
+  }
+  const partRows = $$(".part-row");
+  if (partRows.length) {
+    installDraft.partitions = partRows.map(row => {
+      const flags = [];
+      if ($(".f-esp", row)?.checked) flags.push("esp");
+      if ($(".f-bios", row)?.checked) flags.push("bios_grub");
+      if ($(".f-boot", row)?.checked) flags.push("boot");
+      return {
+        name: $(".p-name", row).value.trim(),
+        size_mb: $(".p-rest", row)?.checked ? 0 : Number($(".p-size", row).value || 0),
+        fs: $(".p-fs", row).value,
+        mount: $(".p-mount", row).value,
+        flags: flags.join(","),
+      };
+    });
+  }
+  const nicRows = $$(".nic-row");
+  if (nicRows.length) {
+    installDraft.nics = nicRows.map(row => ({
+      name: $(".n-name", row).value,
+      mac: $(".n-mac", row)?.value || "",
+      method: $(".n-method", row).value,
+      ip: $(".n-ip", row)?.value.trim() || "",
+      prefix: $(".n-prefix", row)?.value || "24",
+      gateway: $(".n-gw", row)?.value.trim() || "",
+      dns1: $(".n-dns1", row)?.value.trim() || "",
+      dns2: $(".n-dns2", row)?.value.trim() || "",
+    }));
+  }
+}
+
+function partBar(parts, diskBytes) {
+  const fixed = parts.filter(p => p.size_mb > 0).reduce((s, p) => s + p.size_mb, 0);
+  const total = diskBytes ? Math.max(diskBytes / 1048576, fixed + 1) : Math.max(fixed + 1024, 1);
+  return `<div class="part-bar">${parts.map((p, i) => {
+    const mb = p.size_mb > 0 ? p.size_mb : Math.max(total - fixed, 1);
+    const pct = Math.max(8, Math.min(80, (mb / total) * 100));
+    return `<i class="seg${i % 3}" style="flex:${pct}" title="${escapeHtml(p.name || "part")} ${p.size_mb ? p.size_mb + " MB" : "剩余"}"></i>`;
+  }).join("")}</div>`;
+}
+
+function renderPartRow(p, i) {
+  const rest = !p.size_mb;
+  const flags = String(p.flags || "");
+  return `<div class="editor-item part-row">
+    <div class="editor-grid">
+      <div><label>名称</label><input class="p-name" value="${escapeHtml(p.name || "")}" placeholder="root"></div>
+      <div><label>文件系统</label><select class="p-fs">${opts(FS_OPTS, p.fs)}</select></div>
+      <div><label>挂载点</label><select class="p-mount">
+        <option value="" ${!p.mount ? "selected" : ""}>不挂载</option>
+        ${opts(MOUNT_OPTS, p.mount)}
+      </select></div>
+      <div><label>大小 (MB)</label>
+        <input class="p-size" type="number" min="0" value="${p.size_mb || ""}" ${rest ? "disabled" : ""} placeholder="512">
+      </div>
+    </div>
+    <div class="chk-row">
+      <label><input type="checkbox" class="p-rest" ${rest ? "checked" : ""}> 使用剩余空间</label>
+      <label><input type="checkbox" class="f-esp" ${flags.includes("esp") ? "checked" : ""}> ESP</label>
+      <label><input type="checkbox" class="f-bios" ${flags.includes("bios_grub") ? "checked" : ""}> BIOS GRUB</label>
+      <label><input type="checkbox" class="f-boot" ${flags.includes("boot") ? "checked" : ""}> boot</label>
+      <button type="button" class="ghost danger-lite" data-del-part="${i}">删除</button>
+    </div>
+  </div>`;
+}
+
+function renderNicRow(n, i, invNics) {
+  const staticOn = n.method === "static";
+  const nicOpts = invNics.map(x => {
+    const lab = `${x.name} · ${x.mac || ""} ${x.up ? "· UP" : ""}`.trim();
+    return `<option value="${escapeHtml(x.name)}" ${x.name === n.name ? "selected" : ""}>${escapeHtml(lab)}</option>`;
+  }).join("");
+  return `<div class="editor-item nic-row">
+    <div class="editor-grid">
+      <div><label>网卡</label>
+        <select class="n-name">
+          ${invNics.length ? nicOpts : `<option value="${escapeHtml(n.name || "eth0")}">${escapeHtml(n.name || "eth0")}</option>`}
+        </select>
+        <input type="hidden" class="n-mac" value="${escapeHtml(n.mac || (invNics.find(x => x.name === n.name) || {}).mac || "")}">
+      </div>
+      <div><label>地址获取</label>
+        <select class="n-method">
+          <option value="dhcp" ${n.method !== "static" ? "selected" : ""}>DHCP（自动）</option>
+          <option value="static" ${staticOn ? "selected" : ""}>静态地址</option>
+        </select>
+      </div>
+    </div>
+    <div class="static-fields ${staticOn ? "" : "hidden"}">
+      <div class="editor-grid">
+        <div><label>IP 地址</label><input class="n-ip" value="${escapeHtml(n.ip || "")}" placeholder="10.0.0.20" inputmode="decimal"></div>
+        <div><label>前缀长度</label><select class="n-prefix">${opts(PREFIX_OPTS, n.prefix || "24", v => "/" + v)}</select></div>
+        <div><label>网关</label><input class="n-gw" value="${escapeHtml(n.gateway || "")}" placeholder="10.0.0.1" inputmode="decimal"></div>
+        <div><label>主 DNS</label><input class="n-dns1" value="${escapeHtml(n.dns1 || "")}" placeholder="8.8.8.8"></div>
+        <div><label>备 DNS</label><input class="n-dns2" value="${escapeHtml(n.dns2 || "")}" placeholder="1.1.1.1"></div>
+      </div>
+    </div>
+    <div class="chk-row"><button type="button" class="ghost danger-lite" data-del-nic="${i}">删除此网卡</button></div>
+  </div>`;
+}
+
+function buildInstallBody() {
+  collectInstallForm();
+  const d = installDraft;
+  const nics = d.nics.filter(n => n.name || n.method === "static").map(n => {
+    const dns = [n.dns1, n.dns2].map(s => (s || "").trim()).filter(Boolean);
+    const cfg = { name: n.name, mac: n.mac, method: n.method };
+    if (n.method === "static") {
+      cfg.address = n.ip ? `${n.ip}/${n.prefix || "24"}` : "";
+      cfg.gateway = n.gateway;
+      cfg.dns = dns;
+    }
+    return cfg;
+  });
+  return {
+    machine_id: d.machine_id, image_id: d.image_id, hostname: d.hostname, username: d.username,
+    password: d.password, timezone: d.timezone, firmware: d.firmware,
+    ssh_keys: (d.ssh_keys || []).map(s => s.trim()).filter(Boolean),
+    disk: d.disk, partitions: d.partitions, network: { nics }, reboot: d.reboot,
+  };
+}
+
 function renderInstall() {
   const machines = cache.machines || [];
   const images = cache.images || [];
-  view.innerHTML = `
-    <div class="panel">
-      <div class="steps"><span class="on">1 机器/镜像</span><span>2 账号与密钥</span><span>3 磁盘与网卡</span></div>
+  if (!installDraft) {
+    installDraft = blankInstallDraft();
+    if (machines[0]) installDraft.machine_id = machines[0].id;
+    if (images[0]) installDraft.image_id = images[0].id;
+    applyMachineDefaults();
+  }
+  if (installDraft.machine_id && !machines.some(m => m.id === installDraft.machine_id) && machines[0]) {
+    installDraft.machine_id = machines[0].id;
+    applyMachineDefaults();
+  }
+  const d = installDraft;
+  const m = selectedMachine();
+  const img = selectedImage();
+  const disks = machineDisks(m);
+  const nics = machineNics(m);
+  const whole = isWholeDiskImage(img);
+  const userKnown = USER_PRESETS.includes(d.username);
+  const step = d.step;
+  const stepBody = step === 1 ? `
       <div class="row">
-        <div><label>机器</label><select id="in-m">${machines.map(m => `<option value="${m.id}">${escapeHtml(m.name)} (${escapeHtml(m.mac)})</option>`).join("")}</select></div>
-        <div><label>镜像</label><select id="in-i">${images.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join("")}</select></div>
+        <div><label>机器</label>
+          <select id="in-m">${machines.length ? machines.map(x => `<option value="${x.id}" ${x.id === d.machine_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.mac)}</option>`).join("") : `<option value="">（还没有注册的机器）</option>`}</select>
+          <p class="hint">${m && m.inventory ? `${m.inventory.cpus || 0} 核 · ${m.inventory.memory_mb || 0} MB · ${(m.inventory.disks || []).length} 块盘` : "选一台已进入 RAMOS 的机器"}</p>
+        </div>
+        <div><label>镜像</label>
+          <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>
+          <p class="hint">${img ? (whole ? "整盘云镜像，将按镜像自带分区写入" : "根文件系统镜像，需要在第 3 步指定分区") : "先在镜像页登记或上传"}</p>
+        </div>
       </div>
       <div class="row3">
-        <div><label>主机名</label><input id="in-host" placeholder="node-01"></div>
-        <div><label>用户名</label><input id="in-user" value="ubuntu"></div>
-        <div><label>固件</label><select id="in-fw"><option value="uefi">UEFI</option><option value="bios">传统 BIOS</option></select></div>
+        <div><label>主机名</label><input id="in-host" value="${escapeHtml(d.hostname)}" placeholder="node-01"></div>
+        <div><label>固件</label>
+          <select id="in-fw">
+            <option value="uefi" ${d.firmware === "uefi" ? "selected" : ""}>UEFI</option>
+            <option value="bios" ${d.firmware === "bios" ? "selected" : ""}>传统 BIOS</option>
+          </select>
+        </div>
+        <div><label>时区</label><select id="in-tz">${opts(TIMEZONES, d.timezone)}</select></div>
       </div>
+      <label class="chk"><input type="checkbox" id="in-reboot" ${d.reboot ? "checked" : ""}> 装完重启并切到本地磁盘引导</label>
+    ` : step === 2 ? `
       <div class="row">
-        <div><label>登录密码</label><input id="in-pass" type="password"></div>
-        <div><label>时区</label><input id="in-tz" value="Asia/Shanghai"></div>
+        <div><label>登录用户</label>
+          <select id="in-user">
+            ${opts(USER_PRESETS, userKnown ? d.username : "ubuntu")}
+            <option value="__custom" ${userKnown ? "" : "selected"}>自定义…</option>
+          </select>
+          <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="用户名" style="margin-top:8px">
+        </div>
+        <div><label>登录密码</label><input id="in-pass" type="password" value="${escapeHtml(d.password)}" placeholder="建议同时配置公钥"></div>
       </div>
-      <label>SSH 公钥（每行一个）</label>
-      <textarea id="in-keys" placeholder="ssh-ed25519 AAAA..."></textarea>
-      <label>目标磁盘（空则自动选最大盘）</label>
-      <input id="in-disk" placeholder="/dev/sda 或 /dev/nvme0n1">
-      <label>分区（size_mb=0 表示剩余空间）</label>
-      <textarea id="in-parts"></textarea>
-      <label>网卡 JSON</label>
-      <textarea id="in-nics">{"nics":[{"name":"eth0","method":"dhcp"}]}</textarea>
-      <p class="hint">method 可为 dhcp 或 static。静态示例：{"nics":[{"mac":"aa:bb:...","name":"eth0","method":"static","address":"10.0.0.20/24","gateway":"10.0.0.1","dns":["8.8.8.8"]}]}</p>
-      <label><input type="checkbox" id="in-reboot" checked> 装完重启并切到本地磁盘引导</label>
-      <div class="actions" style="margin-top:14px">
-        <button class="primary" id="in-go">下发装机任务</button>
-        <button id="in-pxe">同时 BMC PXE 重启</button>
+      <label>SSH 公钥</label>
+      <div id="in-keys-box" class="editor-list">
+        ${(d.ssh_keys.length ? d.ssh_keys : [""]).map((k, i) => `
+          <div class="key-row">
+            <input class="ssh-key" value="${escapeHtml(k)}" placeholder="ssh-ed25519 或 ssh-rsa 开头的公钥">
+            <button type="button" class="ghost danger-lite" data-del-key="${i}">删除</button>
+          </div>`).join("")}
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button type="button" id="in-add-key">添加公钥</button>
+        <button type="button" id="in-import-key">导入 .pub 文件</button>
+        <input type="file" id="in-key-file" class="hidden" accept=".pub,text/plain">
+      </div>
+      <p class="hint">可添加多把钥匙，或导入 id_ed25519.pub。密码可作兜底。</p>
+    ` : `
+      <div><label>目标磁盘</label>
+        <select id="in-disk">
+          <option value="" ${!d.disk ? "selected" : ""}>自动选择最大磁盘</option>
+          ${disks.map(x => `<option value="${escapeHtml(x.path)}" ${x.path === d.disk ? "selected" : ""}>${escapeHtml(x.path)} · ${fmtBytes(x.size_b)} · ${escapeHtml(x.model || "")}</option>`).join("")}
+        </select>
+        <p class="hint">${disks.length ? "来自 Agent 上报的库存" : "机器尚未上报磁盘时，将自动选最大盘"}</p>
+      </div>
+      ${whole ? `<p class="hint">当前镜像是整盘镜像，写入后保留镜像内分区，无需再画分区表。</p>` : `
+      <div class="editor-head">
+        <h4>分区方案</h4>
+        <button type="button" class="ghost" id="in-reset-parts">按固件恢复默认</button>
+      </div>
+      ${partBar(d.partitions, (disks.find(x => x.path === d.disk) || disks[0] || {}).size_b)}
+      <div id="in-parts-box">${d.partitions.map((p, i) => renderPartRow(p, i)).join("")}</div>
+      <button type="button" id="in-add-part" style="margin-top:8px">添加分区</button>
+      `}
+      <div class="editor-head" style="margin-top:18px">
+        <h4>网卡</h4>
+        <button type="button" class="ghost" id="in-add-nic">添加网卡</button>
+      </div>
+      <div id="in-nics-box">${(d.nics.length ? d.nics : [blankNic()]).map((n, i) => renderNicRow(n, i, nics)).join("")}</div>
+      <p class="hint">${nics.length ? "网卡列表来自机器上报，静态地址只需再填 IP / 网关 / DNS。" : "尚未上报网卡时默认 DHCP。"}</p>
+    `;
+
+  view.innerHTML = `
+    <div class="panel">
+      <div class="steps">
+        <span data-step="1" class="${step === 1 ? "on" : ""}">1 机器 / 镜像</span>
+        <span data-step="2" class="${step === 2 ? "on" : ""}">2 账号与密钥</span>
+        <span data-step="3" class="${step === 3 ? "on" : ""}">3 磁盘与网卡</span>
+      </div>
+      ${stepBody}
+      <div class="actions" style="margin-top:18px">
+        ${step > 1 ? `<button type="button" id="in-prev">上一步</button>` : ""}
+        ${step < 3 ? `<button type="button" class="primary" id="in-next">下一步</button>` : `
+          <button type="button" class="primary" id="in-go">下发装机任务</button>
+          <button type="button" id="in-pxe">同时 BMC PXE 重启</button>`}
       </div>
     </div>`;
-  const syncParts = () => { $("#in-parts").value = JSON.stringify(defaultParts($("#in-fw").value), null, 2); };
-  $("#in-fw").onchange = syncParts; syncParts();
-  const go = async (pxe) => {
-    const m = $("#in-m").value, img = $("#in-i").value;
-    if (!m || !img) return alert("需要机器和镜像");
-    let partitions, network;
-    try { partitions = JSON.parse($("#in-parts").value); network = JSON.parse($("#in-nics").value); }
-    catch (e) { return alert("分区或网卡 JSON 无效: " + e.message); }
-    const body = {
-      machine_id: m, image_id: img, hostname: $("#in-host").value, username: $("#in-user").value,
-      password: $("#in-pass").value, timezone: $("#in-tz").value, firmware: $("#in-fw").value,
-      ssh_keys: $("#in-keys").value.split("\n").map(s => s.trim()).filter(Boolean),
-      disk: $("#in-disk").value, partitions, network, reboot: $("#in-reboot").checked,
+
+  const goStep = n => { collectInstallForm(); installDraft.step = n; renderInstall(); };
+  $$(".steps span[data-step]").forEach(el => {
+    el.onclick = () => goStep(Number(el.dataset.step));
+  });
+  const next = $("#in-next");
+  if (next) next.onclick = () => {
+    collectInstallForm();
+    if (step === 1 && (!installDraft.machine_id || !installDraft.image_id)) return alert("请选择机器和镜像");
+    installDraft.step = step + 1;
+    renderInstall();
+  };
+  const prev = $("#in-prev");
+  if (prev) prev.onclick = () => goStep(step - 1);
+
+  const msel = $("#in-m");
+  if (msel) msel.onchange = () => {
+    collectInstallForm();
+    installDraft.nics = [blankNic()];
+    installDraft.disk = "";
+    applyMachineDefaults();
+    renderInstall();
+  };
+  const isel = $("#in-i");
+  if (isel) isel.onchange = () => { collectInstallForm(); renderInstall(); };
+  const fw = $("#in-fw");
+  if (fw) fw.onchange = () => {
+    collectInstallForm();
+    installDraft.partitions = defaultParts(installDraft.firmware);
+    renderInstall();
+  };
+  const user = $("#in-user");
+  if (user) user.onchange = () => {
+    const custom = $("#in-user-custom");
+    if (user.value === "__custom") custom.classList.remove("hidden");
+    else { custom.classList.add("hidden"); installDraft.username = user.value; }
+  };
+  const addKey = $("#in-add-key");
+  if (addKey) addKey.onclick = () => { collectInstallForm(); installDraft.ssh_keys.push(""); renderInstall(); };
+  const importKey = $("#in-import-key");
+  const keyFile = $("#in-key-file");
+  if (importKey && keyFile) {
+    importKey.onclick = () => keyFile.click();
+    keyFile.onchange = async () => {
+      const f = keyFile.files[0];
+      if (!f) return;
+      const text = await f.text();
+      collectInstallForm();
+      const lines = text.split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith("#"));
+      installDraft.ssh_keys = [...(installDraft.ssh_keys || []).filter(Boolean), ...lines];
+      if (!installDraft.ssh_keys.length) installDraft.ssh_keys = [""];
+      renderInstall();
     };
+  }
+  view.querySelectorAll("[data-del-key]").forEach(btn => {
+    btn.onclick = () => {
+      collectInstallForm();
+      installDraft.ssh_keys.splice(Number(btn.dataset.delKey), 1);
+      if (!installDraft.ssh_keys.length) installDraft.ssh_keys = [""];
+      renderInstall();
+    };
+  });
+  const addPart = $("#in-add-part");
+  if (addPart) addPart.onclick = () => {
+    collectInstallForm();
+    installDraft.partitions.push({ name: "data", size_mb: 0, fs: "ext4", mount: "/home", flags: "" });
+    renderInstall();
+  };
+  const resetParts = $("#in-reset-parts");
+  if (resetParts) resetParts.onclick = () => {
+    collectInstallForm();
+    installDraft.partitions = defaultParts(installDraft.firmware);
+    renderInstall();
+  };
+  view.querySelectorAll("[data-del-part]").forEach(btn => {
+    btn.onclick = () => {
+      collectInstallForm();
+      installDraft.partitions.splice(Number(btn.dataset.delPart), 1);
+      renderInstall();
+    };
+  });
+  $$(".p-rest").forEach(el => {
+    el.onchange = () => {
+      const size = $(".p-size", el.closest(".part-row"));
+      if (size) size.disabled = el.checked;
+    };
+  });
+  const addNic = $("#in-add-nic");
+  if (addNic) addNic.onclick = () => {
+    collectInstallForm();
+    const unused = nics.find(x => !installDraft.nics.some(n => n.name === x.name));
+    installDraft.nics.push(unused ? { ...blankNic(), name: unused.name, mac: unused.mac || "" } : blankNic());
+    renderInstall();
+  };
+  view.querySelectorAll("[data-del-nic]").forEach(btn => {
+    btn.onclick = () => {
+      collectInstallForm();
+      installDraft.nics.splice(Number(btn.dataset.delNic), 1);
+      if (!installDraft.nics.length) installDraft.nics = [blankNic()];
+      renderInstall();
+    };
+  });
+  $$(".n-method").forEach(el => {
+    el.onchange = () => {
+      const box = $(".static-fields", el.closest(".nic-row"));
+      if (box) box.classList.toggle("hidden", el.value !== "static");
+    };
+  });
+  $$(".n-name").forEach(el => {
+    el.onchange = () => {
+      const mac = $(".n-mac", el.closest(".nic-row"));
+      const hit = nics.find(x => x.name === el.value);
+      if (mac) mac.value = hit ? (hit.mac || "") : "";
+    };
+  });
+
+  const submit = async (pxe) => {
+    const body = buildInstallBody();
+    if (!body.machine_id || !body.image_id) return alert("请选择机器和镜像");
+    if (!isWholeDiskImage(selectedImage())) {
+      const roots = (body.partitions || []).filter(p => p.mount === "/");
+      if (roots.length !== 1) return alert("请恰好指定一个挂载为 / 的根分区");
+    }
     try {
       await api("/jobs/install", { method: "POST", body: JSON.stringify(body) });
-      if (pxe) await api(`/machines/${m}/pxe-install`, { method: "POST" });
+      if (pxe) await api(`/machines/${body.machine_id}/pxe-install`, { method: "POST" });
+      installDraft = null;
       navTo("jobs"); await load(); render();
     } catch (e) { alert(e.message); }
   };
-  $("#in-go").onclick = () => go(false);
-  $("#in-pxe").onclick = () => go(true);
+  const go = $("#in-go");
+  if (go) go.onclick = () => submit(false);
+  const pxeBtn = $("#in-pxe");
+  if (pxeBtn) pxeBtn.onclick = () => submit(true);
 }
 
 function renderStress() {
