@@ -350,7 +350,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 - **登记 URL**（推荐）：例如 Ubuntu 24.04 cloud  
   `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`  
   类型选「云镜像（整盘 qcow2/raw）」
-- **上传文件**：大文件更建议 URL，让 RAMOS 自己去拉
+- **上传文件**：大文件建议用 URL 登记。本机上传时页面会显示进度、速率和剩余时间；传到控制面后会检测分区表和引导。
 
 系统和版本决定装机时怎么写网卡（Ubuntu/Debian 13 用 netplan，Debian 11/12 用 ifupdown，Rocky/Alma 8 用 ifcfg，Rocky/Alma 9+ 用 NetworkManager），以及默认根文件系统（RHEL 系多为 xfs）。装完会把根分区扩到磁盘剩余空间。
 

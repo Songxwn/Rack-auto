@@ -38,11 +38,21 @@ function badge(st) {
   return `<span class="badge ${map[st] || ""}">${st || "-"}</span>`;
 }
 function fmtBytes(n) {
-  if (!n) return "0";
+  if (!n) return "0 B";
   const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0, x = n;
   while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
-  return x.toFixed(1) + " " + u[i];
+  return (i === 0 ? String(Math.round(x)) : x.toFixed(1)) + " " + u[i];
+}
+function fmtEta(sec) {
+  if (!isFinite(sec) || sec < 0) return "";
+  if (sec < 1) return "<1 秒";
+  if (sec < 60) return Math.ceil(sec) + " 秒";
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (m < 60) return s ? m + " 分 " + s + " 秒" : m + " 分";
+  const h = Math.floor(m / 60);
+  return h + " 小时 " + (m % 60) + " 分";
 }
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -255,6 +265,86 @@ async function machineDetail(id) {
   };
 }
 
+function setUploadProgress(p) {
+  const box = $("#i-progress");
+  const fill = $("#i-progress-fill");
+  const bar = $("#i-progress-bar");
+  const text = $("#i-progress-text");
+  const pctEl = $("#i-progress-pct");
+  if (!box || !fill || !bar || !text || !pctEl) return;
+  if (p.hidden) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  const total = p.total || 0;
+  const loaded = p.loaded || 0;
+  let pct = 0;
+  if (p.phase === "inspecting") pct = 100;
+  else if (total > 0) pct = Math.min(100, (loaded / total) * 100);
+  fill.classList.toggle("indeterminate", p.phase === "inspecting");
+  fill.style.width = (p.phase === "inspecting" ? 100 : pct) + "%";
+  bar.setAttribute("aria-valuenow", String(Math.round(pct)));
+  pctEl.textContent = Math.round(pct) + "%";
+  if (p.phase === "ready") {
+    text.textContent = "准备上传 · " + fmtBytes(total);
+  } else if (p.phase === "inspecting") {
+    text.textContent = "上传完成，正在检测分区和引导…";
+  } else if (p.phase === "error") {
+    text.textContent = p.error || "上传失败";
+    pctEl.textContent = "失败";
+  } else {
+    const parts = [fmtBytes(loaded) + " / " + fmtBytes(total)];
+    if (p.speed > 0) parts.push(fmtBytes(p.speed) + "/s");
+    if (p.speed > 0 && total > loaded) {
+      const eta = fmtEta((total - loaded) / p.speed);
+      if (eta) parts.push("剩余 " + eta);
+    }
+    text.textContent = parts.join(" · ");
+  }
+}
+
+function uploadControlPlaneImage(file, fields) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/v1/images/upload");
+    const t = token();
+    if (t) xhr.setRequestHeader("X-API-Token", t);
+    let lastT = Date.now();
+    let lastB = 0;
+    let speed = 0;
+    xhr.upload.onprogress = (ev) => {
+      const total = ev.lengthComputable ? ev.total : file.size;
+      const loaded = ev.loaded;
+      const now = Date.now();
+      const dt = (now - lastT) / 1000;
+      if (dt >= 0.25) {
+        speed = (loaded - lastB) / dt;
+        lastT = now;
+        lastB = loaded;
+      }
+      setUploadProgress({ loaded, total, speed, phase: "uploading" });
+    };
+    xhr.upload.onload = () => {
+      setUploadProgress({ loaded: file.size, total: file.size, speed: 0, phase: "inspecting" });
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
+      else reject(new Error(xhr.responseText || ("HTTP " + xhr.status)));
+    };
+    xhr.onerror = () => reject(new Error("网络错误，上传中断"));
+    xhr.onabort = () => reject(new Error("已取消"));
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("name", fields.name || file.name);
+    fd.append("kind", fields.kind || "");
+    fd.append("os_family", fields.os_family || "");
+    fd.append("os_version", fields.os_version || "");
+    setUploadProgress({ loaded: 0, total: file.size, speed: 0, phase: "uploading" });
+    xhr.send(fd);
+  });
+}
+
 function renderImages() {
   view.innerHTML = `
     <div class="row">
@@ -276,6 +366,16 @@ function renderImages() {
         <h3>上传到控制面</h3>
         <p class="hint">大文件建议用 URL 登记。上传到本机后会检测分区表和 UEFI/BIOS 引导。</p>
         <input type="file" id="i-file">
+        <div id="i-file-meta" class="hint mono"></div>
+        <div id="i-progress" class="upload-progress hidden">
+          <div class="upload-track" id="i-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <i class="upload-fill" id="i-progress-fill"></i>
+          </div>
+          <div class="upload-meta">
+            <span id="i-progress-text">准备上传</span>
+            <b id="i-progress-pct">0%</b>
+          </div>
+        </div>
         <button class="primary" id="i-up" style="margin-top:12px">上传</button>
       </div>
     </div>
@@ -301,22 +401,41 @@ function renderImages() {
       await load(); render();
     } catch (e) { alert(e.message); }
   };
+  $("#i-file").onchange = () => {
+    const f = $("#i-file").files[0];
+    const meta = $("#i-file-meta");
+    if (!f) {
+      if (meta) meta.textContent = "";
+      setUploadProgress({ hidden: true });
+      return;
+    }
+    if (meta) meta.textContent = f.name + " · " + fmtBytes(f.size);
+    setUploadProgress({ loaded: 0, total: f.size, speed: 0, phase: "ready" });
+  };
   $("#i-up").onclick = async () => {
     const f = $("#i-file").files[0];
     if (!f) return alert("选择文件");
-    const fd = new FormData();
-    fd.append("file", f);
-    fd.append("name", f.name);
-    fd.append("kind", $("#i-kind").value);
-    fd.append("os_family", $("#i-os").value);
-    fd.append("os_version", $("#i-osver").value);
+    const btn = $("#i-up");
+    const fileEl = $("#i-file");
+    btn.disabled = true;
+    if (fileEl) fileEl.disabled = true;
+    btn.textContent = "上传中…";
     try {
-      const headers = {};
-      const t = token(); if (t) headers["X-API-Token"] = t;
-      const res = await fetch("/api/v1/images/upload", { method: "POST", body: fd, headers });
-      if (!res.ok) throw new Error(await res.text());
-      await load(); render();
-    } catch (e) { alert(e.message); }
+      await uploadControlPlaneImage(f, {
+        name: f.name,
+        kind: $("#i-kind").value,
+        os_family: $("#i-os").value,
+        os_version: $("#i-osver").value,
+      });
+      await load();
+      render();
+    } catch (e) {
+      setUploadProgress({ loaded: 0, total: f.size, speed: 0, phase: "error", error: e.message });
+      btn.disabled = false;
+      if (fileEl) fileEl.disabled = false;
+      btn.textContent = "上传";
+      alert(e.message);
+    }
   };
   view.onclick = async (ev) => {
     const inspectId = ev.target.dataset.inspect;
