@@ -36,3 +36,27 @@ func TestMachineAndJob(t *testing.T) {
 		t.Fatalf("password not redacted: %#v", red.Params)
 	}
 }
+
+func TestImageInspectRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	img := model.Image{
+		Name: "cloud", URL: "http://x/images/a.qcow2", Kind: model.ImageCloudDisk,
+		Inspect: &model.ImageInspect{Status: "ok", BootUEFI: true, BootBIOS: true, RootFS: "ext4", RootNum: 1},
+	}
+	if err := st.UpsertImage(&img); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetImage(img.ID)
+	if err != nil || got.Inspect == nil || !got.Inspect.BootUEFI || got.Inspect.RootFS != "ext4" {
+		t.Fatalf("get: %v %#v", err, got.Inspect)
+	}
+	list, err := st.ListImages()
+	if err != nil || len(list) != 1 || list[0].Inspect == nil || !list[0].Inspect.BootBIOS {
+		t.Fatalf("list: %v %#v", err, list)
+	}
+}

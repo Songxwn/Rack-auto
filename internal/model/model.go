@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	MachineDiscovered  = "discovered"
@@ -96,17 +99,78 @@ type NIC struct {
 }
 
 type Image struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	OSFamily     string    `json:"os_family"`
-	Kind         string    `json:"kind"`
-	URL          string    `json:"url"`
-	Filename     string    `json:"filename"`
-	Checksum     string    `json:"checksum"`
-	ChecksumType string    `json:"checksum_type"`
-	SizeB        int64     `json:"size_b"`
-	Notes        string    `json:"notes"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	OSFamily     string        `json:"os_family"`
+	Kind         string        `json:"kind"`
+	URL          string        `json:"url"`
+	Filename     string        `json:"filename"`
+	Checksum     string        `json:"checksum"`
+	ChecksumType string        `json:"checksum_type"`
+	SizeB        int64         `json:"size_b"`
+	Notes        string        `json:"notes"`
+	Inspect      *ImageInspect `json:"inspect,omitempty"`
+	CreatedAt    time.Time     `json:"created_at"`
+}
+
+type ImageInspect struct {
+	Status       string            `json:"status"`
+	Format       string            `json:"format,omitempty"`
+	Table        string            `json:"table,omitempty"`
+	VirtualSizeB int64             `json:"virtual_size_b"`
+	BootUEFI     bool              `json:"boot_uefi"`
+	BootBIOS     bool              `json:"boot_bios"`
+	EFILoader    string            `json:"efi_loader,omitempty"`
+	RootFS       string            `json:"root_fs,omitempty"`
+	RootNum      int               `json:"root_num,omitempty"`
+	ESPNum       int               `json:"esp_num,omitempty"`
+	Message      string            `json:"message,omitempty"`
+	Warnings     []string           `json:"warnings,omitempty"`
+	Partitions   []InspectPartition `json:"partitions,omitempty"`
+	InspectedAt  time.Time          `json:"inspected_at"`
+}
+
+type InspectPartition struct {
+	Number int    `json:"number"`
+	Type   string `json:"type"`
+	FS     string `json:"fs,omitempty"`
+	SizeB  int64  `json:"size_b"`
+	StartB int64  `json:"start_b"`
+}
+
+func (in *ImageInspect) Compatible(kind, firmware string) error {
+	if in == nil || in.Status == "" || in.Status == "skipped" {
+		return nil
+	}
+	if in.Status == "error" {
+		return fmt.Errorf("image inspect failed: %s", in.Message)
+	}
+	whole := kind == ImageCloudDisk || kind == ImageRawDisk
+	if whole {
+		switch firmware {
+		case FirmwareBIOS:
+			if !in.BootBIOS {
+				return fmt.Errorf("image has no BIOS bootloader; choose UEFI firmware or a BIOS-capable image")
+			}
+		default:
+			if !in.BootUEFI {
+				return fmt.Errorf("image has no UEFI ESP/EFI loader; choose BIOS firmware or a UEFI cloud image")
+			}
+		}
+		if in.RootFS == "" {
+			return fmt.Errorf("image has no Linux root filesystem")
+		}
+		return nil
+	}
+	if in.Table == "gpt" || in.Table == "mbr" {
+		if in.BootUEFI || in.BootBIOS {
+			return fmt.Errorf("image has a partition table and bootloader; use kind cloud-disk or raw-disk")
+		}
+	}
+	if in.RootFS == "" {
+		return fmt.Errorf("image has no Linux root filesystem; use a cloud-root ext4/xfs image")
+	}
+	return nil
 }
 
 type Job struct {

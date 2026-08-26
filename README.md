@@ -117,6 +117,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | CRUD | `/api/v1/machines` | 机器与 BMC |
 | POST | `/api/v1/machines/{id}/power` | `on/off/cycle/reset/soft` |
 | POST | `/api/v1/machines/{id}/boot` | PXE/磁盘/光盘，BIOS 或 UEFI |
+| POST | `/api/v1/images/{id}/inspect` | 检测已上传镜像的分区表和引导 |
 | POST | `/api/v1/jobs/install` | 装机任务 |
 | POST | `/api/v1/jobs/stress` | 压测任务 |
 | GET | `/api/v1/nics` | 控制面主机网卡 |

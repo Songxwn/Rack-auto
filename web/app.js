@@ -273,19 +273,23 @@ function renderImages() {
       </div>
       <div class="panel">
         <h3>上传到控制面</h3>
-        <p class="hint">大文件建议用 URL 登记。上传后由本机 HTTP 提供给 RAMOS。</p>
+        <p class="hint">大文件建议用 URL 登记。上传到本机后会检测分区表和 UEFI/BIOS 引导。</p>
         <input type="file" id="i-file">
         <button class="primary" id="i-up" style="margin-top:12px">上传</button>
       </div>
     </div>
     <div class="panel" style="margin-top:14px">
-      <table><thead><tr><th>名称</th><th>类型</th><th>大小</th><th>URL</th><th></th></tr></thead>
+      <table><thead><tr><th>名称</th><th>类型</th><th>大小</th><th>引导</th><th>URL</th><th></th></tr></thead>
       <tbody>${(cache.images||[]).length ? (cache.images||[]).map(i => `<tr>
         <td>${escapeHtml(i.name)}<div class="hint">${escapeHtml(i.os_family||"")}</div></td>
-        <td>${escapeHtml(i.kind)}</td><td>${fmtBytes(i.size_b)}</td>
+        <td>${escapeHtml(i.kind)}</td><td>${fmtBytes(i.size_b || (i.inspect && i.inspect.virtual_size_b) || 0)}</td>
+        <td>${inspectBadge(i)}<div class="hint">${escapeHtml((i.inspect && i.inspect.message) || "")}</div></td>
         <td class="mono hint">${escapeHtml(i.url)}</td>
-        <td><button class="danger" data-del="${i.id}">删除</button></td>
-      </tr>`).join("") : `<tr><td colspan="5" class="empty">NO IMAGES · 登记 URL 或上传镜像</td></tr>`}</tbody></table>
+        <td class="actions">
+          <button data-inspect="${i.id}">检测</button>
+          <button class="danger" data-del="${i.id}">删除</button>
+        </td>
+      </tr>`).join("") : `<tr><td colspan="6" class="empty">NO IMAGES · 登记 URL 或上传镜像</td></tr>`}</tbody></table>
     </div>`;
   $("#i-add").onclick = async () => {
     try {
@@ -313,6 +317,14 @@ function renderImages() {
     } catch (e) { alert(e.message); }
   };
   view.onclick = async (ev) => {
+    const inspectId = ev.target.dataset.inspect;
+    if (inspectId) {
+      try {
+        await api("/images/" + inspectId + "/inspect", { method: "POST" });
+        await load(); render();
+      } catch (e) { alert(e.message); }
+      return;
+    }
     const id = ev.target.dataset.del;
     if (!id) return;
     if (!confirm("删除镜像？")) return;
@@ -384,6 +396,38 @@ function machineNics(m) {
 
 function isWholeDiskImage(img) {
   return img && (img.kind === "cloud-disk" || img.kind === "raw-disk");
+}
+
+function inspectBadge(img) {
+  const inx = img && img.inspect;
+  if (!inx || !inx.status || inx.status === "skipped") {
+    return `<span class="badge">未检测</span>`;
+  }
+  if (inx.status === "error") {
+    return `<span class="badge bad">不可启动</span>`;
+  }
+  if (img.kind === "cloud-root" && inx.root_fs && !inx.boot_uefi && !inx.boot_bios) {
+    return `<span class="badge ok">rootfs ${escapeHtml(inx.root_fs)}</span>`;
+  }
+  const bits = [];
+  if (inx.boot_uefi) bits.push("UEFI");
+  if (inx.boot_bios) bits.push("BIOS");
+  if (!bits.length) return `<span class="badge warn">无引导</span>`;
+  return `<span class="badge ${inx.status === "warn" ? "warn" : "ok"}">${bits.join(" / ")}</span>`;
+}
+
+function imageHint(img, firmware) {
+  if (!img) return "先在镜像页登记或上传";
+  const whole = isWholeDiskImage(img);
+  const inx = img.inspect;
+  const base = whole ? "整盘云镜像，写入后保留镜像内分区" : "根文件系统镜像，需要在第 3 步指定分区";
+  if (!inx || inx.status === "skipped") {
+    return base + "。未检测引导，建议先在镜像页点「检测」。";
+  }
+  if (inx.status === "error") return "检测失败：" + (inx.message || "");
+  if (whole && firmware === "bios" && !inx.boot_bios) return "该镜像不能 BIOS 启动，请改选 UEFI 或换镜像。";
+  if (whole && firmware !== "bios" && !inx.boot_uefi) return "该镜像不能 UEFI 启动，请改选 BIOS 或换镜像。";
+  return base + (inx.message ? "。" + inx.message : "");
 }
 
 function applyMachineDefaults() {
@@ -572,7 +616,7 @@ function renderInstall() {
         </div>
         <div><label>镜像</label>
           <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>
-          <p class="hint">${img ? (whole ? "整盘云镜像，将按镜像自带分区写入" : "根文件系统镜像，需要在第 3 步指定分区") : "先在镜像页登记或上传"}</p>
+          <p class="hint">${imageHint(img, d.firmware)}</p>
         </div>
       </div>
       <div class="row3">
@@ -770,7 +814,25 @@ function renderInstall() {
   const submit = async (pxe) => {
     const body = buildInstallBody();
     if (!body.machine_id || !body.image_id) return alert("请选择机器和镜像");
-    if (!isWholeDiskImage(selectedImage())) {
+    const img = selectedImage();
+    if (img && img.inspect) {
+      const inx = img.inspect;
+      if (inx.status === "error") return alert("镜像检测失败：" + (inx.message || "不可启动"));
+      if (isWholeDiskImage(img)) {
+        if (body.firmware === "bios" && inx.status !== "skipped" && !inx.boot_bios) {
+          return alert("该镜像没有 BIOS 引导，请改选 UEFI 或更换镜像");
+        }
+        if (body.firmware !== "bios" && inx.status !== "skipped" && !inx.boot_uefi) {
+          return alert("该镜像没有 UEFI ESP，请改选 BIOS 或更换镜像");
+        }
+        const disks = machineDisks(selectedMachine());
+        const disk = body.disk ? disks.find(x => x.path === body.disk) : disks.slice().sort((a, b) => (b.size_b || 0) - (a.size_b || 0))[0];
+        if (disk && disk.size_b && inx.virtual_size_b && inx.virtual_size_b > disk.size_b) {
+          return alert("镜像虚拟容量大于目标磁盘");
+        }
+      }
+    }
+    if (!isWholeDiskImage(img)) {
       const roots = (body.partitions || []).filter(p => p.mount === "/");
       if (roots.length !== 1) return alert("请恰好指定一个挂载为 / 的根分区");
     }

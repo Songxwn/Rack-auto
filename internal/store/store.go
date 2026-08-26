@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS images (
   checksum_type TEXT,
   size_b INTEGER,
   notes TEXT,
+  inspect TEXT,
   created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS jobs (
@@ -104,6 +105,34 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE INDEX IF NOT EXISTS idx_jobs_machine ON jobs(machine_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 `)
+	if err != nil {
+		return err
+	}
+	return s.ensureColumn("images", "inspect", "TEXT")
+}
+
+func (s *Store) ensureColumn(table, col, typ string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == col {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col + ` ` + typ)
 	return err
 }
 
@@ -297,26 +326,37 @@ func (s *Store) UpsertImage(img *model.Image) error {
 	if img.CreatedAt.IsZero() {
 		img.CreatedAt = now()
 	}
-	_, err := s.db.Exec(`INSERT INTO images(id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)
+	inspect, _ := json.Marshal(img.Inspect)
+	if img.Inspect == nil {
+		inspect = []byte("")
+	}
+	_, err := s.db.Exec(`INSERT INTO images(id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, os_family=excluded.os_family, kind=excluded.kind, url=excluded.url,
-		filename=excluded.filename, checksum=excluded.checksum, checksum_type=excluded.checksum_type, size_b=excluded.size_b, notes=excluded.notes`,
-		img.ID, img.Name, img.OSFamily, img.Kind, img.URL, img.Filename, img.Checksum, img.ChecksumType, img.SizeB, img.Notes, fmtTime(img.CreatedAt))
+		filename=excluded.filename, checksum=excluded.checksum, checksum_type=excluded.checksum_type, size_b=excluded.size_b, notes=excluded.notes, inspect=excluded.inspect`,
+		img.ID, img.Name, img.OSFamily, img.Kind, img.URL, img.Filename, img.Checksum, img.ChecksumType, img.SizeB, img.Notes, string(inspect), fmtTime(img.CreatedAt))
 	return err
 }
 
 func scanImage(sc interface{ Scan(dest ...any) error }) (model.Image, error) {
 	var img model.Image
 	var created string
-	err := sc.Scan(&img.ID, &img.Name, &img.OSFamily, &img.Kind, &img.URL, &img.Filename, &img.Checksum, &img.ChecksumType, &img.SizeB, &img.Notes, &created)
+	var inspect sql.NullString
+	err := sc.Scan(&img.ID, &img.Name, &img.OSFamily, &img.Kind, &img.URL, &img.Filename, &img.Checksum, &img.ChecksumType, &img.SizeB, &img.Notes, &inspect, &created)
 	img.CreatedAt = parseTime(created)
+	if inspect.Valid && inspect.String != "" && inspect.String != "null" {
+		var in model.ImageInspect
+		if json.Unmarshal([]byte(inspect.String), &in) == nil {
+			img.Inspect = &in
+		}
+	}
 	return img, err
 }
 
 func (s *Store) ListImages() ([]model.Image, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.Query(`SELECT id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,created_at FROM images ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at FROM images ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +375,7 @@ func (s *Store) ListImages() ([]model.Image, error) {
 func (s *Store) GetImage(id string) (model.Image, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	row := s.db.QueryRow(`SELECT id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,created_at FROM images WHERE id=?`, id)
+	row := s.db.QueryRow(`SELECT id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at FROM images WHERE id=?`, id)
 	img, err := scanImage(row)
 	if err == sql.ErrNoRows {
 		return img, fmt.Errorf("image not found")

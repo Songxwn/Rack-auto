@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Songxwn/Rack-auto/internal/cryptpw"
+	"github.com/Songxwn/Rack-auto/internal/imageinspect"
 	"github.com/Songxwn/Rack-auto/internal/model"
 	"github.com/Songxwn/Rack-auto/internal/provision"
 )
@@ -48,29 +49,35 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	if disk == "" {
 		return fmt.Errorf("no target disk")
 	}
-	if len(spec.Partitions) == 0 {
-		fw := spec.Firmware
-		if fw == "" {
-			fw = firmware()
+
+	kind := model.ImageCloudRoot
+	var imageURL, checksum, checksumType string
+	if job.Image != nil {
+		if job.Image.Kind != "" {
+			kind = job.Image.Kind
 		}
-		spec.Partitions = provision.DefaultPartitions(fw)
+		imageURL = job.Image.URL
+		checksum = job.Image.Checksum
+		checksumType = job.Image.ChecksumType
 	}
-	if err := provision.Validate(spec.Partitions); err != nil {
-		return err
+	whole := kind == model.ImageRawDisk || kind == model.ImageCloudDisk
+	if !whole {
+		if len(spec.Partitions) == 0 {
+			fw := spec.Firmware
+			if fw == "" {
+				fw = firmware()
+			}
+			spec.Partitions = provision.DefaultPartitions(fw)
+		}
+		if err := provision.Validate(spec.Partitions); err != nil {
+			return err
+		}
 	}
 
 	progress(5, "target disk "+disk)
 	progress(8, "unmounting partitions")
 	_ = umountDisk(disk)
 
-	kind := model.ImageCloudRoot
-	var imageURL, checksum, checksumType string
-	if job.Image != nil {
-		kind = job.Image.Kind
-		imageURL = job.Image.URL
-		checksum = job.Image.Checksum
-		checksumType = job.Image.ChecksumType
-	}
 	if imageURL == "" {
 		return fmt.Errorf("image URL is empty")
 	}
@@ -98,12 +105,17 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		}
 		_ = run(log, "partprobe", disk)
 		time.Sleep(2 * time.Second)
-		rootDev, err := findRootPartition(disk)
+		hint := 0
+		if job.Image != nil && job.Image.Inspect != nil {
+			hint = job.Image.Inspect.RootNum
+		}
+		rootDev, err := findRootPartition(disk, hint)
 		if err != nil {
 			return err
 		}
+		log("root partition %s", rootDev)
 		progress(70, "inject system config")
-		if err := injectConfig(log, rootDev, disk, spec); err != nil {
+		if err := injectConfig(log, rootDev, disk, spec, true); err != nil {
 			return err
 		}
 		progress(95, "config done")
@@ -152,7 +164,7 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	_ = run(log, "e2fsck", "-fp", rootDev)
 	_ = run(log, "resize2fs", rootDev)
 	progress(72, "inject system config")
-	if err := injectConfig(log, rootDev, disk, spec); err != nil {
+	if err := injectConfig(log, rootDev, disk, spec, false); err != nil {
 		return err
 	}
 	progress(90, "install bootloader")
@@ -265,28 +277,92 @@ func umountDisk(disk string) error {
 	return nil
 }
 
-func findRootPartition(disk string) (string, error) {
+func findRootPartition(disk string, hint int) (string, error) {
 	_ = exec.Command("partprobe", disk).Run()
 	time.Sleep(time.Second)
-	candidates := []string{}
-	for i := 1; i <= 8; i++ {
-		p := provision.PartitionPath(disk, i)
+	if hint > 0 {
+		p := provision.PartitionPath(disk, hint)
 		if _, err := os.Stat(p); err == nil {
-			candidates = append(candidates, p)
+			if fs := probeDevFS(p); fs == "ext4" || fs == "xfs" || fs == "btrfs" || fs == "" {
+				return p, nil
+			}
 		}
 	}
-	if len(candidates) == 0 {
+	parts := listDiskPartitions(disk)
+	if len(parts) == 0 {
 		return "", fmt.Errorf("no partition found after writing disk image")
 	}
-	best := candidates[len(candidates)-1]
+	var best string
 	var bestSize int64
-	for _, p := range candidates {
-		if sz := blockSize(p); sz > bestSize {
-			bestSize = sz
+	for _, p := range parts {
+		fs := probeDevFS(p)
+		if fs == "vfat" || fs == "swap" {
+			continue
+		}
+		sz := blockSize(p)
+		score := sz
+		if fs == "ext4" || fs == "xfs" || fs == "btrfs" {
+			score += 1 << 40
+		}
+		if score > bestSize {
+			bestSize = score
 			best = p
 		}
 	}
+	if best == "" {
+		best = parts[len(parts)-1]
+		var sz int64
+		for _, p := range parts {
+			if n := blockSize(p); n > sz {
+				sz = n
+				best = p
+			}
+		}
+	}
 	return best, nil
+}
+
+func listDiskPartitions(disk string) []string {
+	base := filepath.Base(disk)
+	ents, err := os.ReadDir("/sys/class/block")
+	if err != nil {
+		var out []string
+		for i := 1; i <= 32; i++ {
+			p := provision.PartitionPath(disk, i)
+			if _, err := os.Stat(p); err == nil {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	var out []string
+	for _, e := range ents {
+		name := e.Name()
+		if name == base || !strings.HasPrefix(name, base) {
+			continue
+		}
+		rest := strings.TrimPrefix(name, base)
+		if rest == "" {
+			continue
+		}
+		if rest[0] != 'p' && (rest[0] < '0' || rest[0] > '9') {
+			continue
+		}
+		p := "/dev/" + name
+		if _, err := os.Stat(p); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func probeDevFS(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	return imageinspect.ProbeFS(f, 0)
 }
 
 func blockSize(dev string) int64 {
@@ -299,7 +375,7 @@ func blockSize(dev string) int64 {
 	return n * 512
 }
 
-func injectConfig(log func(string, ...any), rootDev, disk string, spec model.InstallSpec) error {
+func injectConfig(log func(string, ...any), rootDev, disk string, spec model.InstallSpec, keepLayout bool) error {
 	mnt := "/mnt/target"
 	_ = os.MkdirAll(mnt, 0o755)
 	if err := run(log, "mount", rootDev, mnt); err != nil {
@@ -307,20 +383,24 @@ func injectConfig(log func(string, ...any), rootDev, disk string, spec model.Ins
 	}
 	defer func() { _ = exec.Command("umount", "-R", mnt).Run() }()
 
-	for i, p := range spec.Partitions {
-		if p.Mount == "" || p.Mount == "/" || p.FS == "swap" || p.FS == "biosboot" {
-			continue
+	if !keepLayout {
+		for i, p := range spec.Partitions {
+			if p.Mount == "" || p.Mount == "/" || p.FS == "swap" || p.FS == "biosboot" {
+				continue
+			}
+			dev := provision.PartitionPath(disk, i+1)
+			mp := filepath.Join(mnt, strings.TrimPrefix(p.Mount, "/"))
+			_ = os.MkdirAll(mp, 0o755)
+			_ = run(log, "mount", dev, mp)
 		}
-		dev := provision.PartitionPath(disk, i+1)
-		mp := filepath.Join(mnt, strings.TrimPrefix(p.Mount, "/"))
-		_ = os.MkdirAll(mp, 0o755)
-		_ = run(log, "mount", dev, mp)
+		_ = os.WriteFile(filepath.Join(mnt, "etc/fstab"), []byte(provision.Fstab(spec.Partitions, disk)), 0644)
+	} else {
+		log("keeping image fstab")
 	}
 
 	if spec.Hostname != "" {
 		_ = os.WriteFile(filepath.Join(mnt, "etc/hostname"), []byte(spec.Hostname+"\n"), 0644)
 	}
-	_ = os.WriteFile(filepath.Join(mnt, "etc/fstab"), []byte(provision.Fstab(spec.Partitions, disk)), 0644)
 
 	hashed := ""
 	if spec.Password != "" {

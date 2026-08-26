@@ -17,6 +17,7 @@ import (
 
 	"github.com/Songxwn/Rack-auto/internal/bmc"
 	"github.com/Songxwn/Rack-auto/internal/config"
+	"github.com/Songxwn/Rack-auto/internal/imageinspect"
 	"github.com/Songxwn/Rack-auto/internal/model"
 	"github.com/Songxwn/Rack-auto/internal/netboot"
 	"github.com/Songxwn/Rack-auto/internal/provision"
@@ -59,6 +60,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/images", s.auth(s.listImages))
 	mux.HandleFunc("POST /api/v1/images", s.auth(s.createImage))
 	mux.HandleFunc("POST /api/v1/images/upload", s.auth(s.uploadImage))
+	mux.HandleFunc("POST /api/v1/images/{id}/inspect", s.auth(s.inspectImage))
 	mux.HandleFunc("DELETE /api/v1/images/{id}", s.auth(s.deleteImage))
 	mux.Handle("/images/", http.StripPrefix("/images/", http.FileServer(http.Dir(s.Cfg.ImagesDir()))))
 
@@ -472,6 +474,13 @@ func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	for i := range list {
+		if list[i].Inspect != nil {
+			continue
+		}
+		s.fillImageInspect(&list[i])
+		_ = s.Store.UpsertImage(&list[i])
+	}
 	writeJSON(w, 200, list)
 }
 
@@ -488,6 +497,7 @@ func (s *Server) createImage(w http.ResponseWriter, r *http.Request) {
 	if img.Kind == "" {
 		img.Kind = model.ImageCloudDisk
 	}
+	s.fillImageInspect(&img)
 	if err := s.Store.UpsertImage(&img); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -536,11 +546,65 @@ func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 	if img.Kind == "" {
 		img.Kind = model.ImageCloudDisk
 	}
+	s.fillImageInspect(&img)
 	if err := s.Store.UpsertImage(&img); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	writeJSON(w, 201, img)
+}
+
+func (s *Server) inspectImage(w http.ResponseWriter, r *http.Request) {
+	img, err := s.Store.GetImage(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	s.fillImageInspect(&img)
+	if err := s.Store.UpsertImage(&img); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, 200, img)
+}
+
+func (s *Server) fillImageInspect(img *model.Image) {
+	path, err := s.imageFile(*img)
+	if err != nil {
+		img.Inspect = &model.ImageInspect{
+			Status:      "skipped",
+			Message:     "file is not on this control plane; upload it to inspect bootloaders",
+			InspectedAt: time.Now().UTC(),
+		}
+		return
+	}
+	if img.SizeB == 0 {
+		if st, err := os.Stat(path); err == nil {
+			img.SizeB = st.Size()
+		}
+	}
+	img.Inspect = imageinspect.File(path)
+}
+
+func (s *Server) imageFile(img model.Image) (string, error) {
+	if img.Filename != "" {
+		p := filepath.Join(s.Cfg.ImagesDir(), img.Filename)
+		if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+			return p, nil
+		}
+	}
+	u := img.URL
+	const mark = "/images/"
+	if i := strings.LastIndex(u, mark); i >= 0 {
+		name := u[i+len(mark):]
+		if name != "" && !strings.Contains(name, "/") && !strings.Contains(name, "..") {
+			p := filepath.Join(s.Cfg.ImagesDir(), name)
+			if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+				return p, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("not local")
 }
 
 func (s *Server) deleteImage(w http.ResponseWriter, r *http.Request) {
@@ -596,20 +660,59 @@ func (s *Server) createInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 404)
 		return
 	}
-	if _, err := s.Store.GetImage(spec.ImageID); err != nil {
+	img, err := s.Store.GetImage(spec.ImageID)
+	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
 	}
-	if len(spec.Partitions) == 0 {
-		fw := spec.Firmware
-		if fw == "" {
-			fw = m.Firmware
-		}
-		spec.Partitions = provision.DefaultPartitions(fw)
+	if img.Inspect == nil || img.Inspect.Status == "" || img.Inspect.Status == "skipped" {
+		s.fillImageInspect(&img)
+		_ = s.Store.UpsertImage(&img)
 	}
-	if err := provision.Validate(spec.Partitions); err != nil {
+	fw := spec.Firmware
+	if fw == "" {
+		fw = m.Firmware
+	}
+	if fw == "" {
+		fw = model.FirmwareUEFI
+	}
+	spec.Firmware = fw
+	whole := img.Kind == model.ImageCloudDisk || img.Kind == model.ImageRawDisk
+	if err := img.Inspect.Compatible(img.Kind, fw); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
+	}
+	if whole {
+		spec.Partitions = nil
+		if img.Inspect != nil && img.Inspect.VirtualSizeB > 0 && m.Inventory != nil {
+			var target int64
+			if spec.Disk != "" {
+				for _, d := range m.Inventory.Disks {
+					if d.Path == spec.Disk {
+						target = d.SizeB
+						break
+					}
+				}
+			} else {
+				for _, d := range m.Inventory.Disks {
+					if d.SizeB > target {
+						target = d.SizeB
+					}
+				}
+			}
+			if target > 0 && img.Inspect.VirtualSizeB > target {
+				http.Error(w, fmt.Sprintf("image virtual size %d exceeds target disk %d", img.Inspect.VirtualSizeB, target), 400)
+				return
+			}
+		}
+	} else {
+		if len(spec.Partitions) == 0 {
+			spec.Partitions = provision.DefaultPartitions(fw)
+		}
+		if err := provision.Validate(spec.Partitions); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 	}
 	if spec.Hostname == "" {
 		spec.Hostname = m.Name
