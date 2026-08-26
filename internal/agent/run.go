@@ -24,7 +24,7 @@ func Run(ctx context.Context, url, token, mac, version string) error {
 		mac = PrimaryMAC()
 	}
 	if url == "" {
-		return fmt.Errorf("未指定控制面 URL（--url 或内核参数 rackauto_url）")
+		return fmt.Errorf("control-plane URL missing (--url or kernel param rackauto_url)")
 	}
 	c := New(url, token, mac, version)
 	inv := CollectInventory()
@@ -62,20 +62,20 @@ func Run(ctx context.Context, url, token, mac, version string) error {
 			switch job.Type {
 			case model.JobInstall:
 				err = c.RunInstall(ctx, job)
-				msg := "装机完成"
+				msg := "install finished"
 				if err != nil {
 					msg = err.Error()
 				}
 				_ = c.Complete(job.ID, err == nil, msg, nil)
 			case model.JobStress:
 				res, err := c.RunStress(ctx, job)
-				msg := "压测完成"
+				msg := "stress finished"
 				if err != nil {
 					msg = err.Error()
 				}
 				_ = c.Complete(job.ID, err == nil, msg, res)
 			default:
-				_ = c.Complete(job.ID, false, "未知任务类型 "+job.Type, nil)
+				_ = c.Complete(job.ID, false, "unknown job type "+job.Type, nil)
 			}
 			inv = CollectInventory()
 			_ = c.Register(inv)

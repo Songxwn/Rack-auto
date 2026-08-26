@@ -23,7 +23,7 @@ func packCasperISO(srcDir, dest string) error {
 	if err := packCasperISOExternal(srcDir, dest); err == nil {
 		return nil
 	}
-	fmt.Println("   未找到 xorriso/genisoimage，使用内置 Joliet 打包 casper.iso")
+	fmt.Println("   xorriso/genisoimage not found; packing casper.iso with built-in Joliet")
 	return packCasperISOGo(srcDir, dest)
 }
 
@@ -76,7 +76,7 @@ func packCasperISOGo(srcDir, dest string) error {
 		return err
 	}
 	if len(files) == 0 {
-		return fmt.Errorf("没有可打包的 casper 文件")
+		return fmt.Errorf("no casper files to pack")
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
 
@@ -115,7 +115,7 @@ func packCasperISOGo(srcDir, dest string) error {
 	} {
 		n := putDirRecJ(jRoot[off:], rec.name, rec.lba, isoSector, rec.dir)
 		if n <= 0 {
-			return fmt.Errorf("ISO 根目录写不下 %s（请在控制面安装 xorriso）", rec.name)
+			return fmt.Errorf("ISO root directory cannot fit %s (install xorriso on the control plane)", rec.name)
 		}
 		off += n
 	}
@@ -123,22 +123,22 @@ func packCasperISOGo(srcDir, dest string) error {
 	cOff, dOff := 0, 0
 	n := putDirRecJ(jCasper[cOff:], ".", jCasperLBA, isoSector, true)
 	if n <= 0 {
-		return fmt.Errorf("ISO casper 目录写不下")
+		return fmt.Errorf("ISO casper directory cannot fit")
 	}
 	cOff += n
 	n = putDirRecJ(jCasper[cOff:], "..", jRootLBA, isoSector, true)
 	if n <= 0 {
-		return fmt.Errorf("ISO casper 目录写不下")
+		return fmt.Errorf("ISO casper directory cannot fit")
 	}
 	cOff += n
 	n = putDirRecJ(jDisk[dOff:], ".", jDiskLBA, isoSector, true)
 	if n <= 0 {
-		return fmt.Errorf("ISO .disk 目录写不下")
+		return fmt.Errorf("ISO .disk directory cannot fit")
 	}
 	dOff += n
 	n = putDirRecJ(jDisk[dOff:], "..", jRootLBA, isoSector, true)
 	if n <= 0 {
-		return fmt.Errorf("ISO .disk 目录写不下")
+		return fmt.Errorf("ISO .disk directory cannot fit")
 	}
 	dOff += n
 	for _, f := range files {
@@ -148,13 +148,13 @@ func packCasperISOGo(srcDir, dest string) error {
 		case "casper":
 			n = putDirRecJ(jCasper[cOff:], base, f.lba, uint32(f.size), false)
 			if n <= 0 {
-				return fmt.Errorf("ISO casper 目录写不下 %s（请在控制面安装 xorriso）", base)
+				return fmt.Errorf("ISO casper directory cannot fit %s (install xorriso on the control plane)", base)
 			}
 			cOff += n
 		case ".disk":
 			n = putDirRecJ(jDisk[dOff:], base, f.lba, uint32(f.size), false)
 			if n <= 0 {
-				return fmt.Errorf("ISO .disk 目录写不下 %s（请在控制面安装 xorriso）", base)
+				return fmt.Errorf("ISO .disk directory cannot fit %s (install xorriso on the control plane)", base)
 			}
 			dOff += n
 		}
@@ -168,7 +168,7 @@ func packCasperISOGo(srcDir, dest string) error {
 	putBoth32ISO(pvd[80:88], lba)
 	putBoth16ISO(pvd[128:132], isoSector)
 	if putDirRecISO(pvd[156:], []byte{0}, jRootLBA, isoSector, true) <= 0 {
-		return fmt.Errorf("ISO PVD 根目录记录写不下")
+		return fmt.Errorf("ISO PVD root record cannot fit")
 	}
 
 	jol := make([]byte, isoSector)
@@ -180,7 +180,7 @@ func packCasperISOGo(srcDir, dest string) error {
 	putBoth16ISO(jol[128:132], isoSector)
 	putJolietPadded(jol[40:72], "RAMOS")
 	if putDirRecJ(jol[156:], ".", jRootLBA, isoSector, true) <= 0 {
-		return fmt.Errorf("ISO Joliet 根目录记录写不下")
+		return fmt.Errorf("ISO Joliet root record cannot fit")
 	}
 
 	term := make([]byte, isoSector)

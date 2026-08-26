@@ -22,13 +22,13 @@ import (
 func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	spec, err := DecodeJSON[model.InstallSpec](job.Params)
 	if err != nil {
-		return fmt.Errorf("解析装机参数: %w", err)
+		return fmt.Errorf("parse install params: %w", err)
 	}
 	if runtime.GOOS != "linux" {
-		return fmt.Errorf("装机 Agent 仅支持 Linux RAMOS")
+		return fmt.Errorf("install agent requires Linux RAMOS")
 	}
 	if !isRoot() {
-		return fmt.Errorf("装机需要 root")
+		return fmt.Errorf("install requires root")
 	}
 	log := func(format string, a ...any) {
 		line := fmt.Sprintf(format, a...)
@@ -46,7 +46,7 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		disk = pickLargestDisk(inv.Disks)
 	}
 	if disk == "" {
-		return fmt.Errorf("未找到目标磁盘")
+		return fmt.Errorf("no target disk")
 	}
 	if len(spec.Partitions) == 0 {
 		fw := spec.Firmware
@@ -59,8 +59,8 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		return err
 	}
 
-	progress(5, "目标磁盘 "+disk)
-	progress(8, "卸载可能占用的分区")
+	progress(5, "target disk "+disk)
+	progress(8, "unmounting partitions")
 	_ = umountDisk(disk)
 
 	kind := model.ImageCloudRoot
@@ -72,15 +72,15 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		checksumType = job.Image.ChecksumType
 	}
 	if imageURL == "" {
-		return fmt.Errorf("镜像 URL 为空")
+		return fmt.Errorf("image URL is empty")
 	}
 
 	if kind == model.ImageRawDisk || kind == model.ImageCloudDisk {
-		progress(12, "下载并写入整盘镜像")
+		progress(12, "download disk image")
 		tmp := "/tmp/rackauto-image"
 		if err := downloadFile(ctx, imageURL, tmp, func(got, total int64) {
 			if total > 0 {
-				c.Progress(job.ID, 12+int(got*30/total), fmt.Sprintf("下载镜像 %d/%d MB", got>>20, total>>20))
+				c.Progress(job.ID, 12+int(got*30/total), fmt.Sprintf("download image %d/%d MB", got>>20, total>>20))
 			}
 		}); err != nil {
 			return err
@@ -88,13 +88,13 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		if err := verifyChecksum(tmp, checksum, checksumType); err != nil {
 			return err
 		}
-		progress(45, "写入 "+disk)
+		progress(45, "write "+disk)
 		if err := writeDiskImage(log, tmp, disk, func(copied, total int64) {
 			if total > 0 {
-				c.Progress(job.ID, 45+int(copied*20/total), fmt.Sprintf("写入磁盘 %d/%d MB", copied>>20, total>>20))
+				c.Progress(job.ID, 45+int(copied*20/total), fmt.Sprintf("write disk %d/%d MB", copied>>20, total>>20))
 			}
 		}); err != nil {
-			return fmt.Errorf("写入磁盘失败: %w", err)
+			return fmt.Errorf("write disk: %w", err)
 		}
 		_ = run(log, "partprobe", disk)
 		time.Sleep(2 * time.Second)
@@ -102,25 +102,25 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		if err != nil {
 			return err
 		}
-		progress(70, "注入系统配置")
+		progress(70, "inject system config")
 		if err := injectConfig(log, rootDev, disk, spec); err != nil {
 			return err
 		}
-		progress(95, "配置完成")
+		progress(95, "config done")
 		if spec.Reboot {
-			progress(98, "即将重启进入已安装系统")
+			progress(98, "rebooting into installed OS")
 			go func() { time.Sleep(3 * time.Second); _ = exec.Command("reboot").Run() }()
 		}
 		return nil
 	}
 
-	progress(10, "分区 " + disk)
+	progress(10, "partition "+disk)
 	for _, cmd := range provision.SGDiskScript(disk, spec.Partitions) {
 		if err := runShell(log, cmd); err != nil {
-			return fmt.Errorf("分区失败: %w", err)
+			return fmt.Errorf("partition failed: %w", err)
 		}
 	}
-	progress(20, "格式化分区")
+	progress(20, "format partitions")
 	for _, cmd := range provision.FormatCommands(disk, spec.Partitions) {
 		if err := runShell(log, cmd); err != nil {
 			return err
@@ -130,10 +130,10 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	rootIdx := rootIndex(spec.Partitions)
 	rootDev := provision.PartitionPath(disk, rootIdx+1)
 	tmp := "/tmp/rackauto-rootimg"
-	progress(25, "下载根文件系统镜像")
+	progress(25, "download rootfs image")
 	if err := downloadFile(ctx, imageURL, tmp, func(got, total int64) {
 		if total > 0 {
-			c.Progress(job.ID, 25+int(got*25/total), fmt.Sprintf("下载镜像 %d/%d MB", got>>20, total>>20))
+			c.Progress(job.ID, 25+int(got*25/total), fmt.Sprintf("download image %d/%d MB", got>>20, total>>20))
 		}
 	}); err != nil {
 		return err
@@ -141,26 +141,26 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	if err := verifyChecksum(tmp, checksum, checksumType); err != nil {
 		return err
 	}
-	progress(52, "写入根分区 "+rootDev)
+	progress(52, "write root "+rootDev)
 	if err := writeDiskImage(log, tmp, rootDev, func(copied, total int64) {
 		if total > 0 {
-			c.Progress(job.ID, 52+int(copied*16/total), fmt.Sprintf("写入根分区 %d/%d MB", copied>>20, total>>20))
+			c.Progress(job.ID, 52+int(copied*16/total), fmt.Sprintf("write root %d/%d MB", copied>>20, total>>20))
 		}
 	}); err != nil {
 		return err
 	}
 	_ = run(log, "e2fsck", "-fp", rootDev)
 	_ = run(log, "resize2fs", rootDev)
-	progress(72, "注入系统配置")
+	progress(72, "inject system config")
 	if err := injectConfig(log, rootDev, disk, spec); err != nil {
 		return err
 	}
-	progress(90, "安装引导程序")
+	progress(90, "install bootloader")
 	if err := installBootloader(log, disk, spec); err != nil {
-		log("警告: 引导安装失败: %v（云镜像可能已自带引导）", err)
+		log("warn: bootloader install failed: %v (cloud image may already have one)", err)
 	}
 	if spec.Reboot {
-		progress(98, "即将重启")
+		progress(98, "rebooting")
 		go func() { time.Sleep(3 * time.Second); _ = exec.Command("reboot").Run() }()
 	}
 	return nil
@@ -202,7 +202,7 @@ func verifyChecksum(path, sum, kind string) error {
 		}
 		got := hex.EncodeToString(h.Sum(nil))
 		if !strings.EqualFold(got, strings.TrimSpace(sum)) {
-			return fmt.Errorf("校验和不匹配")
+			return fmt.Errorf("checksum mismatch")
 		}
 	}
 	return nil
@@ -219,7 +219,7 @@ func downloadFile(ctx context.Context, url, dest string, cb func(got, total int6
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("下载镜像失败: %s", resp.Status)
+		return fmt.Errorf("download image failed: %s", resp.Status)
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
@@ -276,7 +276,7 @@ func findRootPartition(disk string) (string, error) {
 		}
 	}
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("整盘镜像写入后未发现分区")
+		return "", fmt.Errorf("no partition found after writing disk image")
 	}
 	best := candidates[len(candidates)-1]
 	var bestSize int64
@@ -390,7 +390,7 @@ func injectConfig(log func(string, ...any), rootDev, disk string, spec model.Ins
 	}
 	_ = os.MkdirAll(filepath.Join(mnt, "etc/ssh/sshd_config.d"), 0o755)
 	_ = os.WriteFile(filepath.Join(mnt, "etc/ssh/sshd_config.d/99-rackauto.conf"), []byte("PasswordAuthentication yes\nPermitRootLogin yes\n"), 0644)
-	log("已写入 hostname / SSH / 密码 / 网卡 / cloud-init")
+	log("wrote hostname / SSH / password / NIC / cloud-init")
 	return nil
 }
 

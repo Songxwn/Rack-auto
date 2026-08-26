@@ -55,7 +55,7 @@ func ExtractISOFiles(isoPath string, want map[string]string) error {
 	for src := range missing {
 		names = append(names, src)
 	}
-	return fmt.Errorf("ISO 中找不到: %s", strings.Join(names, ", "))
+	return fmt.Errorf("not found in ISO: %s", strings.Join(names, ", "))
 }
 
 func readISOVolumes(f *os.File) ([]isoVol, error) {
@@ -63,7 +63,7 @@ func readISOVolumes(f *os.File) ([]isoVol, error) {
 	for i := 16; i < 32; i++ {
 		sec := make([]byte, isoSector)
 		if _, err := f.ReadAt(sec, int64(i)*isoSector); err != nil {
-			return nil, fmt.Errorf("读 ISO 卷描述符: %w", err)
+			return nil, fmt.Errorf("read ISO volume descriptor: %w", err)
 		}
 		if string(sec[1:6]) != "CD001" {
 			continue
@@ -101,7 +101,7 @@ func readISOVolumes(f *os.File) ([]isoVol, error) {
 		out = append(out, *primary)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("不是有效的 ISO 9660 映像")
+		return nil, fmt.Errorf("not a valid ISO 9660 image")
 	}
 	return out, nil
 }
@@ -119,17 +119,17 @@ func (v isoVol) find(f *os.File, path string) (uint32, uint32, error) {
 		}
 		ent, ok := lookupDir(ents, part)
 		if !ok {
-			return 0, 0, fmt.Errorf("%s: 没有 %s", path, part)
+			return 0, 0, fmt.Errorf("%s: missing %s", path, part)
 		}
 		last := i == len(parts)-1
 		if last {
 			if ent.dir {
-				return 0, 0, fmt.Errorf("%s 是目录", path)
+				return 0, 0, fmt.Errorf("%s is a directory", path)
 			}
 			return ent.lba, ent.size, nil
 		}
 		if !ent.dir {
-			return 0, 0, fmt.Errorf("%s: %s 不是目录", path, part)
+			return 0, 0, fmt.Errorf("%s: %s is not a directory", path, part)
 		}
 		lba, size = ent.lba, ent.size
 	}
@@ -342,7 +342,7 @@ func ExtractISOPrefix(isoPath, destDir string, keep func(path string) bool) erro
 		n++
 	}
 	if n == 0 {
-		return fmt.Errorf("ISO 中没有匹配的文件")
+		return fmt.Errorf("no matching file in ISO")
 	}
 	return nil
 }

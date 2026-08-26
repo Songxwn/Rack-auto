@@ -116,13 +116,17 @@ func TestParseOfficialCDMirrors(t *testing.T) {
 <mirror:countrycode>CN</mirror:countrycode>
 </mirror:location>
 </item>
+<item>
+<title>清华大学</title>
+<link>https://mirrors.example.cn/ubuntu-releases/</link>
+</item>
 </channel>
 </rss>`
 	list, err := parseOfficialCDMirrors([]byte(rss))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 2 {
+	if len(list) != 3 {
 		t.Fatalf("len %d %+v", len(list), list)
 	}
 	if list[0].Name != "Tsinghua University" || list[0].Country != "CN" || list[0].Bandwidth != 110 {
@@ -133,6 +137,9 @@ func TestParseOfficialCDMirrors(t *testing.T) {
 	}
 	if list[1].Kind != kindCDImage {
 		t.Fatal("cdimage kind")
+	}
+	if list[2].Name != "mirrors.example.cn" {
+		t.Fatalf("non-ascii title should use host: %+v", list[2])
 	}
 }
 

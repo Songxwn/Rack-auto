@@ -29,7 +29,7 @@ func writeDiskImage(log func(string, ...any), src, dest string, progress func(co
 		if _, err := exec.LookPath("qemu-img"); err == nil {
 			return run(log, "qemu-img", "convert", "-p", "-O", "raw", src, dest)
 		}
-		log("qemu-img 不在 PATH，使用内置 qcow2 转换 → %s", dest)
+		log("qemu-img not in PATH; using built-in qcow2 convert -> %s", dest)
 		return convertQcowTo(src, dest, progress)
 	}
 	return run(log, "dd", "if="+src, "of="+dest, "bs=8M", "conv=fsync", "status=progress")
@@ -43,15 +43,15 @@ func convertQcowTo(src, dest string, progress func(copied, total int64)) error {
 	defer in.Close()
 	img, err := qcow2reader.OpenWithType(in, qcow2.Type)
 	if err != nil {
-		return fmt.Errorf("打开 qcow2: %w", err)
+		return fmt.Errorf("open qcow2: %w", err)
 	}
 	defer img.Close()
 	if err := img.Readable(); err != nil {
-		return fmt.Errorf("qcow2 无法读取: %w", err)
+		return fmt.Errorf("qcow2 not readable: %w", err)
 	}
 	size := img.Size()
 	if size <= 0 {
-		return fmt.Errorf("qcow2 虚拟大小无效")
+		return fmt.Errorf("qcow2 virtual size invalid")
 	}
 	out, err := os.OpenFile(dest, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
@@ -85,7 +85,7 @@ func convertQcowTo(src, dest string, progress func(copied, total int64)) error {
 		}
 	}
 	if copied != size {
-		return fmt.Errorf("qcow2 写入不完整: %d / %d", copied, size)
+		return fmt.Errorf("qcow2 write incomplete: %d / %d", copied, size)
 	}
 	return out.Sync()
 }

@@ -134,18 +134,18 @@ func (s *Service) startDHCPLocked() error {
 	start := net.ParseIP(d.RangeStart).To4()
 	end := net.ParseIP(d.RangeEnd).To4()
 	if start == nil || end == nil {
-		err := fmt.Errorf("DHCP 地址池无效")
+		err := fmt.Errorf("invalid DHCP pool")
 		s.dhcpErr = err.Error()
 		return err
 	}
 	serverIP := s.nextServerIP(d)
 	if serverIP == nil || serverIP.IsUnspecified() {
-		err := fmt.Errorf("无法确定 next-server，请填写接入网卡上的 IPv4 或 next-server")
+		err := fmt.Errorf("cannot determine next-server; set IPv4 on the uplink NIC or next-server")
 		s.dhcpErr = err.Error()
 		return err
 	}
 	if gw := d.EffectiveRouter(serverIP); gw != d.Router {
-		log.Printf("DHCP 网关 %q 不在 PXE 网段 %s，改用 %s", d.Router, d.Subnet, gw)
+		log.Printf("DHCP router %q is not in PXE subnet %s; using %s", d.Router, d.Subnet, gw)
 		d.Router = gw
 		s.dhcpCfg.Router = gw
 		_ = s.persistDHCP(d)
@@ -165,14 +165,14 @@ func (s *Service) startDHCPLocked() error {
 	srv, err := server4.NewServer(d.Interface, addr, handler)
 	if err != nil {
 		s.dhcpErr = err.Error()
-		return fmt.Errorf("绑定 DHCP 到网卡 %s 失败: %w", d.Interface, err)
+		return fmt.Errorf("bind DHCP on %s: %w", d.Interface, err)
 	}
 	s.dhcpSrv = srv
 	s.dhcpOn = true
 	s.dhcpErr = ""
 	s.dhcpSince = time.Now().UTC()
 	go s.serveDHCP(srv, d.Interface)
-	log.Printf("DHCP 已在网卡 %s 上监听 %s  池 %s-%s  next-server %s", d.Interface, laddr, d.RangeStart, d.RangeEnd, serverIP)
+	log.Printf("DHCP on %s listen %s  pool %s-%s  next-server %s", d.Interface, laddr, d.RangeStart, d.RangeEnd, serverIP)
 	return nil
 }
 
@@ -185,7 +185,7 @@ func (s *Service) serveDHCP(srv *server4.Server, iface string) {
 		s.dhcpOn = false
 		if err != nil && !isConnClosed(err) {
 			s.dhcpErr = err.Error()
-			log.Printf("DHCP (%s) 退出: %v", iface, err)
+			log.Printf("DHCP (%s) exited: %v", iface, err)
 		}
 	}
 }

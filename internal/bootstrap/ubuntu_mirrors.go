@@ -40,21 +40,21 @@ const (
 // Used only if Ubuntu's official CD mirror list cannot be fetched.
 var fallbackReleaseMirrors = []ubuntuMirror{
 	{Name: "Canonical", Root: officialReleasesRoot, Kind: kindReleases},
-	{Name: "清华 TUNA", Root: "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
-	{Name: "中科大", Root: "https://mirrors.ustc.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
-	{Name: "华为云", Root: "https://mirrors.huaweicloud.com/ubuntu-releases", Kind: kindReleases, Country: "CN"},
-	{Name: "腾讯云", Root: "https://mirrors.cloud.tencent.com/ubuntu-releases", Kind: kindReleases, Country: "CN"},
-	{Name: "网易", Root: "https://mirrors.163.com/ubuntu-releases", Kind: kindReleases, Country: "CN"},
-	{Name: "上海交大", Root: "https://mirror.sjtu.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
-	{Name: "北外", Root: "https://mirrors.bfsu.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
-	{Name: "南京大学", Root: "https://mirrors.nju.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "TUNA", Root: "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "USTC", Root: "https://mirrors.ustc.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "Huawei Cloud", Root: "https://mirrors.huaweicloud.com/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "Tencent Cloud", Root: "https://mirrors.cloud.tencent.com/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "163", Root: "https://mirrors.163.com/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "SJTU", Root: "https://mirror.sjtu.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "BFSU", Root: "https://mirrors.bfsu.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
+	{Name: "NJU", Root: "https://mirrors.nju.edu.cn/ubuntu-releases", Kind: kindReleases, Country: "CN"},
 }
 
 var fallbackCDImageMirrors = []ubuntuMirror{
 	{Name: "Canonical", Root: officialCDImageRoot, Kind: kindCDImage},
-	{Name: "清华 TUNA", Root: "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/releases", Kind: kindCDImage, Country: "CN"},
-	{Name: "中科大", Root: "https://mirrors.ustc.edu.cn/ubuntu-cdimage/releases", Kind: kindCDImage, Country: "CN"},
-	{Name: "华为云", Root: "https://mirrors.huaweicloud.com/ubuntu-cdimage/releases", Kind: kindCDImage, Country: "CN"},
+	{Name: "TUNA", Root: "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/releases", Kind: kindCDImage, Country: "CN"},
+	{Name: "USTC", Root: "https://mirrors.ustc.edu.cn/ubuntu-cdimage/releases", Kind: kindCDImage, Country: "CN"},
+	{Name: "Huawei Cloud", Root: "https://mirrors.huaweicloud.com/ubuntu-cdimage/releases", Kind: kindCDImage, Country: "CN"},
 }
 
 type mirrorHit struct {
@@ -76,7 +76,7 @@ var (
 func parseOfficialCDMirrors(body []byte) ([]ubuntuMirror, error) {
 	chunks := rssItemRe.FindAllSubmatch(body, -1)
 	if len(chunks) == 0 {
-		return nil, fmt.Errorf("无法解析官方 CD 镜像 RSS")
+		return nil, fmt.Errorf("cannot parse official CD mirrors RSS")
 	}
 	var out []ubuntuMirror
 	for _, ch := range chunks {
@@ -86,8 +86,12 @@ func parseOfficialCDMirrors(body []byte) ([]ubuntuMirror, error) {
 			continue
 		}
 		name := strings.TrimSpace(rssField(rssTitleRe, item))
-		if name == "" {
-			name = link
+		if name == "" || !isASCII(name) {
+			if u, err := url.Parse(link); err == nil && u.Host != "" {
+				name = u.Host
+			} else {
+				name = link
+			}
 		}
 		bw, _ := strconv.Atoi(rssField(rssBWRe, item))
 		out = append(out, ubuntuMirror{
@@ -107,6 +111,15 @@ func rssField(re *regexp.Regexp, item []byte) string {
 		return ""
 	}
 	return strings.TrimSpace(string(m[1]))
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func (m ubuntuMirror) isoDir(rel string) string {
@@ -176,13 +189,13 @@ func newProbeClient() *http.Client {
 func mirrorsForArch(hc *http.Client, debArch string) []ubuntuMirror {
 	official, err := fetchOfficialCDMirrors(hc)
 	if err != nil {
-		fmt.Printf("   ! 官方 CD 镜像列表: %v，改用内置列表（不含阿里云）\n", err)
+		fmt.Printf("   ! official CD mirror list: %v; using built-in list (no Aliyun)\n", err)
 		if debArch == "arm64" {
 			return selectProbeMirrors(fallbackCDImageMirrors, debArch)
 		}
 		return selectProbeMirrors(fallbackReleaseMirrors, debArch)
 	}
-	fmt.Printf("   从 Ubuntu 官方取得 %d 条 CD 镜像路径\n", len(official))
+	fmt.Printf("   fetched %d CD mirror paths from Ubuntu\n", len(official))
 	out := selectProbeMirrors(official, debArch)
 	if debArch == "arm64" && len(out) < 2 {
 		out = selectProbeMirrors(append(append([]ubuntuMirror{}, official...), fallbackCDImageMirrors...), debArch)
@@ -216,7 +229,7 @@ func fetchOfficialCDMirrors(hc *http.Client) ([]ubuntuMirror, error) {
 		return nil, err
 	}
 	if len(list) == 0 {
-		return nil, fmt.Errorf("官方列表为空")
+		return nil, fmt.Errorf("official list is empty")
 	}
 	return list, nil
 }
@@ -286,7 +299,7 @@ func pickFastestMirror(hc *http.Client, mirrors []ubuntuMirror, rel string) mirr
 		hc = newProbeClient()
 	}
 	if len(mirrors) == 0 {
-		return mirrorHit{err: fmt.Errorf("没有可用镜像")}
+		return mirrorHit{err: fmt.Errorf("no mirrors available")}
 	}
 	hits := make([]mirrorHit, len(mirrors))
 	var wg sync.WaitGroup
@@ -314,10 +327,10 @@ func pickFastestMirror(hc *http.Client, mirrors []ubuntuMirror, rel string) mirr
 		}
 	}
 	if failN > 0 {
-		fmt.Printf("   - %d 个镜像探测失败\n", failN)
+		fmt.Printf("   - %d mirrors failed probe\n", failN)
 	}
 	if !found {
-		return mirrorHit{err: fmt.Errorf("所有镜像探测失败")}
+		return mirrorHit{err: fmt.Errorf("all mirrors failed probe")}
 	}
 	return best
 }
@@ -348,7 +361,7 @@ func probeMirror(hc *http.Client, m ubuntuMirror, rel string) mirrorHit {
 		return hit
 	}
 	if len(b) < 32 {
-		hit.err = fmt.Errorf("SHA256SUMS 为空")
+		hit.err = fmt.Errorf("SHA256SUMS is empty")
 		return hit
 	}
 	hit.sums = string(b)
@@ -365,16 +378,16 @@ func formatLatency(d time.Duration) string {
 func errShort(err error) string {
 	s := err.Error()
 	if i := strings.Index(s, "timeout"); i >= 0 {
-		return "超时"
+		return "timeout"
 	}
 	if strings.Contains(s, "no such host") || strings.Contains(s, "server misbehaving") {
-		return "DNS 失败"
+		return "DNS failed"
 	}
 	if strings.Contains(s, "connection refused") {
-		return "连接拒绝"
+		return "connection refused"
 	}
 	if len(s) > 80 {
-		return s[:80] + "…"
+		return s[:80] + "..."
 	}
 	return s
 }

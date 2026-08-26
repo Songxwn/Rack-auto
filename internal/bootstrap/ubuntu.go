@@ -27,7 +27,7 @@ func installUbuntu(hc *http.Client, cfg config.Config, offline bool) error {
 	if len(arches) == 0 {
 		arches = []string{"x86_64"}
 	}
-	fmt.Printf("   Ubuntu %s live-server；控制面缓存 ISO，机器只拉 casper 层（不必把 2.7GB 整包进内存）\n", rel)
+	fmt.Printf("   Ubuntu %s live-server; control plane caches ISO, machines fetch casper layers only (not the 2.7GB ISO)\n", rel)
 	isoHC := &http.Client{Timeout: 2 * time.Hour}
 	for _, arch := range arches {
 		if err := installUbuntuArch(hc, isoHC, cfg, arch, rel, offline); err != nil {
@@ -60,16 +60,16 @@ func installUbuntuArch(metaHC, isoHC *http.Client, cfg config.Config, arch, rel 
 		}
 	} else if !isoReady(isoPath) {
 		if offline {
-			return fmt.Errorf("离线模式缺少 %s。请先联网 bootstrap，或把 Ubuntu %s live-server ISO 放到该路径（也可在配置里设 ubuntu_iso）", isoPath, rel)
+			return fmt.Errorf("offline mode missing %s; run bootstrap online first, or place Ubuntu %s live-server ISO there (or set ubuntu_iso)", isoPath, rel)
 		}
 		name, sum, base, err := resolveLiveServerISO(metaHC, cfg, rel, debArch)
 		if err != nil {
 			return err
 		}
 		url := strings.TrimRight(base, "/") + "/" + name
-		fmt.Println("   下载", url)
+		fmt.Println("   download", url)
 		if err := downloadResume(isoHC, url, isoPath); err != nil {
-			return fmt.Errorf("下载 Ubuntu ISO: %w", err)
+			return fmt.Errorf("download Ubuntu ISO: %w", err)
 		}
 		if sum != "" {
 			if err := verifySHA256(isoPath, sum); err != nil {
@@ -84,9 +84,9 @@ func installUbuntuArch(metaHC, isoHC *http.Client, cfg config.Config, arch, rel 
 	if kernelReady(vmlinuz, stock) {
 		fmt.Println("   +", vmlinuz, "(cached)")
 	} else {
-		fmt.Println("   从 ISO 抽出 casper/vmlinuz 与 casper/initrd")
+		fmt.Println("   extract casper/vmlinuz and casper/initrd from ISO")
 		if err := extractCasper(isoPath, vmlinuz, stock); err != nil {
-			return fmt.Errorf("抽出内核: %w", err)
+			return fmt.Errorf("extract kernel: %w", err)
 		}
 		fmt.Println("   +", vmlinuz)
 		fmt.Println("   +", stock)
@@ -95,24 +95,24 @@ func installUbuntuArch(metaHC, isoHC *http.Client, cfg config.Config, arch, rel 
 	if casperISOReady(casperISO) && fileMin(layerFile, 8) {
 		fmt.Println("   +", casperISO, "(cached)")
 	} else {
-		fmt.Println("   从 ISO 抽出 casper squashfs 层（机器只拉这一层，不再把 2.7GB 整包进内存）")
+		fmt.Println("   extract casper squashfs from ISO (machines fetch this layer only)")
 		_ = os.RemoveAll(stage)
 		if err := extractCasperLive(isoPath, stage); err != nil {
-			return fmt.Errorf("抽出 squashfs: %w", err)
+			return fmt.Errorf("extract squashfs: %w", err)
 		}
 		if err := packCasperISO(stage, casperISO); err != nil {
-			return fmt.Errorf("打包 casper.iso: %w", err)
+			return fmt.Errorf("pack casper.iso: %w", err)
 		}
 		if err := writeLayerFSPath(filepath.Join(stage, "casper"), layerFile); err != nil {
-			return fmt.Errorf("写入 layerfs-path: %w", err)
+			return fmt.Errorf("write layerfs-path: %w", err)
 		}
 		_ = os.RemoveAll(stage)
 		fmt.Println("   +", casperISO)
 	}
 
-	fmt.Println("   写入 RAMOS 启动脚本到 initrd")
+	fmt.Println("   write RAMOS start script into initrd")
 	if err := appendInitrdOverlay(stock, initrd, casperBottomScript()); err != nil {
-		return fmt.Errorf("制作 initrd: %w", err)
+		return fmt.Errorf("build initrd: %w", err)
 	}
 	fmt.Println("   +", initrd)
 	return nil
@@ -125,7 +125,7 @@ func ubuntuDebArch(arch string) (string, error) {
 	case "aarch64", "arm64":
 		return "arm64", nil
 	default:
-		return "", fmt.Errorf("不支持的 RAMOS 架构 %s（请用 x86_64 或 aarch64）", arch)
+		return "", fmt.Errorf("unsupported RAMOS arch %s (use x86_64 or aarch64)", arch)
 	}
 }
 
@@ -166,7 +166,7 @@ func extractCasperLive(iso, dest string) error {
 	if err := ExtractISOPrefix(iso, dest, keepCasperLive); err == nil {
 		return requireSquashfs(dest)
 	} else {
-		fmt.Printf("   ! Go ISO 抽出 squashfs: %v\n", err)
+		fmt.Printf("   ! Go ISO extract squashfs: %v\n", err)
 	}
 	_ = os.RemoveAll(dest)
 	if err := os.MkdirAll(dest, 0o755); err != nil {
@@ -187,7 +187,7 @@ func requireSquashfs(dest string) error {
 		return err
 	}
 	if len(matches) == 0 {
-		return fmt.Errorf("抽出后没有 casper/*.squashfs")
+		return fmt.Errorf("no casper/*.squashfs after extract")
 	}
 	return nil
 }
@@ -239,7 +239,7 @@ func extractCasperLiveExternal(iso, dest string) error {
 	if last != nil {
 		return last
 	}
-	return fmt.Errorf("没有 7z/bsdtar，且内置 ISO 解析失败")
+	return fmt.Errorf("no 7z/bsdtar and built-in ISO parser failed")
 }
 
 func writeLayerFSPath(casperDir, dest string) error {
@@ -255,7 +255,7 @@ func writeLayerFSPath(casperDir, dest string) error {
 		}
 	}
 	if best == "" {
-		return fmt.Errorf("没有 squashfs")
+		return fmt.Errorf("no squashfs")
 	}
 	return os.WriteFile(dest, []byte(best+"\n"), 0o644)
 }
@@ -263,10 +263,10 @@ func writeLayerFSPath(casperDir, dest string) error {
 func stageLocalISO(src, dest string) error {
 	st, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("本地 ISO %s: %w", src, err)
+		return fmt.Errorf("local ISO %s: %w", src, err)
 	}
 	if st.Size() < 500<<20 {
-		return fmt.Errorf("本地 ISO 太小，不像 live-server 映像: %s", src)
+		return fmt.Errorf("local ISO too small to be a live-server image: %s", src)
 	}
 	if same, err := sameFile(src, dest); err == nil && same {
 		return nil
@@ -274,7 +274,7 @@ func stageLocalISO(src, dest string) error {
 	if isoReady(dest) {
 		return nil
 	}
-	fmt.Println("   使用本地 ISO", src)
+	fmt.Println("   using local ISO", src)
 	return copyFile(src, dest)
 }
 
@@ -344,24 +344,24 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 	var body string
 	if pin := pinnedMirror(cfg, debArch); !isAutoMirror(pin) {
 		base = ubuntuISOBase(cfg, rel, debArch)
-		fmt.Println("   使用配置的镜像", base)
+		fmt.Println("   using configured mirror", base)
 		sumsURL := strings.TrimRight(base, "/") + "/SHA256SUMS"
 		body, err = httpGetBody(hc, sumsURL)
 		if err != nil {
-			fmt.Printf("   ! 无法读取 %s（%v），回退文件名 %s\n", sumsURL, err, fallback)
+			fmt.Printf("   ! cannot read %s (%v); falling back to filename %s\n", sumsURL, err, fallback)
 			return fallback, "", base, nil
 		}
 	} else {
-		fmt.Println("   从 Ubuntu 官方获取 CD 镜像路径并探测延迟…")
+		fmt.Println("   fetch Ubuntu CD mirror list and probe latency...")
 		officialBase := ubuntuISOBase(cfg, rel, debArch)
 		sumsURL := strings.TrimRight(officialBase, "/") + "/SHA256SUMS"
 		officialBody, officialErr := httpGetBody(hc, sumsURL)
 		hit := pickFastestMirror(nil, mirrorsForArch(hc, debArch), rel)
 		if hit.err != nil {
-			fmt.Printf("   ! %v，回退官方源\n", hit.err)
+			fmt.Printf("   ! %v; falling back to official source\n", hit.err)
 			base = officialBase
 			if officialErr != nil {
-				fmt.Printf("   ! 无法读取 %s（%v），回退文件名 %s\n", sumsURL, officialErr, fallback)
+				fmt.Printf("   ! cannot read %s (%v); falling back to filename %s\n", sumsURL, officialErr, fallback)
 				return fallback, "", base, nil
 			}
 			body = officialBody
@@ -371,12 +371,12 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 			if officialErr == nil && strings.TrimSpace(officialBody) != "" {
 				body = officialBody
 			}
-			fmt.Printf("   选用 %s（%s）%s\n", hit.name, formatLatency(hit.d), base)
+			fmt.Printf("   using %s (%s) %s\n", hit.name, formatLatency(hit.d), base)
 		}
 	}
 	name, sum, err = parseLiveServerISO(body, debArch)
 	if err != nil {
-		fmt.Printf("   ! 解析 SHA256SUMS 失败（%v），回退 %s\n", err, fallback)
+		fmt.Printf("   ! parse SHA256SUMS failed (%v); falling back to %s\n", err, fallback)
 		return fallback, "", base, nil
 	}
 	return name, sum, base, nil
@@ -412,7 +412,7 @@ func parseLiveServerISO(sums, debArch string) (name, sum string, err error) {
 	if err := sc.Err(); err != nil {
 		return "", "", err
 	}
-	return "", "", fmt.Errorf("SHA256SUMS 里没有 *%s", suffix)
+	return "", "", fmt.Errorf("SHA256SUMS has no *%s", suffix)
 }
 
 func httpGetBody(hc *http.Client, url string) (string, error) {
@@ -443,9 +443,9 @@ func verifySHA256(path, want string) error {
 	}
 	got := hex.EncodeToString(h.Sum(nil))
 	if !strings.EqualFold(got, want) {
-		return fmt.Errorf("ISO SHA256 不匹配\n  期望 %s\n  实际 %s", want, got)
+		return fmt.Errorf("ISO SHA256 mismatch\n  want %s\n  got  %s", want, got)
 	}
-	fmt.Println("   SHA256 校验通过")
+	fmt.Println("   SHA256 OK")
 	return nil
 }
 
@@ -457,7 +457,7 @@ func downloadResume(hc *http.Client, url, dest string) error {
 	var have int64
 	if st, err := os.Stat(tmp); err == nil {
 		have = st.Size()
-		fmt.Printf("   续传 %s 已有 %d MB\n", filepath.Base(dest), have>>20)
+		fmt.Printf("   resume %s already have %d MB\n", filepath.Base(dest), have>>20)
 	}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -532,13 +532,13 @@ func extractCasper(iso, vmlinuz, initrd string) error {
 	if err := ExtractISOFiles(iso, want); err == nil && fileMin(vmlinuz, 1<<20) && fileMin(initrd, 1<<20) {
 		return nil
 	} else if err != nil {
-		fmt.Printf("   ! Go ISO 解析: %v\n", err)
+		fmt.Printf("   ! Go ISO parse: %v\n", err)
 	}
 	if err := extractCasperExternal(iso, filepath.Dir(vmlinuz)); err != nil {
-		return fmt.Errorf("无法从 ISO 抽出 casper 内核（可安装 7-Zip/p7zip 后重试）: %w", err)
+		return fmt.Errorf("cannot extract casper kernel from ISO (install 7-Zip/p7zip and retry): %w", err)
 	}
 	if !fileMin(vmlinuz, 1<<20) || !fileMin(initrd, 1<<20) {
-		return fmt.Errorf("抽出的 vmlinuz/initrd 不完整")
+		return fmt.Errorf("extracted vmlinuz/initrd incomplete")
 	}
 	return nil
 }
@@ -579,7 +579,7 @@ func extractCasperExternal(iso, dest string) error {
 	if last != nil {
 		return last
 	}
-	return fmt.Errorf("没有 7z/bsdtar，且内置 ISO 解析失败")
+	return fmt.Errorf("no 7z/bsdtar and built-in ISO parser failed")
 }
 
 func moveIfExists(src, dest string) {

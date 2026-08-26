@@ -19,24 +19,24 @@ func Run(cfg config.Config, agentSrc string, offline bool) error {
 	}
 	hc := &http.Client{Timeout: 5 * time.Minute}
 
-	fmt.Println(">> 安装本机 iPXE（不访问 boot.ipxe.org）")
+	fmt.Println(">> install local iPXE (no boot.ipxe.org)")
 	if err := InstallIPXE(cfg.TFTPDir()); err != nil {
 		return err
 	}
 
-	fmt.Println(">> Ubuntu RAMOS（缓存 live-server ISO，机器只拉 casper.iso）")
+	fmt.Println(">> Ubuntu RAMOS (cache live-server ISO; machines fetch casper.iso only)")
 	if err := installUbuntu(hc, cfg, offline); err != nil {
 		return err
 	}
 
-	fmt.Println(">> 交叉编译 Linux Agent")
+	fmt.Println(">> cross-compile Linux agent")
 	if err := buildAgents(cfg, agentSrc); err != nil {
-		fmt.Printf("   ! 编译 agent: %v\n", err)
+		fmt.Printf("   ! build agent: %v\n", err)
 		if _, err2 := os.Stat(filepath.Join(cfg.AgentDir(), "x86_64", "rackauto-agent")); err2 != nil {
 			return err
 		}
 	}
-	fmt.Println("bootstrap 完成。iPXE 与 Ubuntu RAMOS 均由本机 TFTP/HTTP 提供，装机网不必再访问公网。")
+	fmt.Println("bootstrap done. iPXE and Ubuntu RAMOS are served from local TFTP/HTTP.")
 	return nil
 }
 
@@ -86,17 +86,17 @@ func buildAgents(cfg config.Config, src string) error {
 	}
 	if _, err := os.Stat(pkg); err != nil {
 		if haveLinuxAgent(cfg) {
-			fmt.Println("   无源码，沿用已有 Agent")
+			fmt.Println("   no source; keeping existing agent")
 			return nil
 		}
-		return fmt.Errorf("没有 cmd/rackauto-agent 源码，也没有现成 Agent。请用 GitHub Release 里的 rackauto-agent，拷到 %s/<架构>/rackauto-agent", cfg.AgentDir())
+		return fmt.Errorf("no cmd/rackauto-agent source and no prebuilt agent; copy Release rackauto-agent to %s/<arch>/rackauto-agent", cfg.AgentDir())
 	}
 	if _, err := exec.LookPath("go"); err != nil {
 		if haveLinuxAgent(cfg) {
-			fmt.Println("   未安装 Go，沿用已有 Agent")
+			fmt.Println("   go not installed; keeping existing agent")
 			return nil
 		}
-		return fmt.Errorf("本机没有 go 命令。控制面请直接用 Release 二进制，不必从源码编译")
+		return fmt.Errorf("go not found; use the Release binary on the control plane")
 	}
 	targets := []struct{ goos, goarch, dir string }{
 		{"linux", "amd64", "x86_64"},
@@ -113,7 +113,7 @@ func buildAgents(cfg config.Config, src string) error {
 			fmt.Printf("   go build %s/%s -> %s\n", t.goos, t.goarch, out)
 		}
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("交叉编译失败（Go 1.26 若报 nfcSparseValues，请用 GOTOOLCHAIN=go1.25.3）：%w", err)
+			return fmt.Errorf("cross-compile failed (if Go 1.26 reports nfcSparseValues, use GOTOOLCHAIN=go1.25.3): %w", err)
 		}
 	}
 	return nil

@@ -37,10 +37,10 @@ func main() {
 	}
 
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	cfgPath := fs.String("config", env("RACKAUTO_CONFIG", "configs/rackauto.yaml"), "配置文件路径")
-	listen := fs.String("listen", "", "HTTP 监听地址")
-	publicURL := fs.String("public-url", "", "对外可达 URL")
-	dataDir := fs.String("data-dir", "", "数据目录")
+	cfgPath := fs.String("config", env("RACKAUTO_CONFIG", "configs/rackauto.yaml"), "config file path")
+	listen := fs.String("listen", "", "HTTP listen address")
+	publicURL := fs.String("public-url", "", "public URL")
+	dataDir := fs.String("data-dir", "", "data directory")
 	_ = fs.Parse(filterServeArgs(os.Args[1:]))
 
 	cfg, err := config.Load(*cfgPath)
@@ -60,7 +60,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if err := bootstrap.InstallIPXE(cfg.TFTPDir()); err != nil {
-		log.Printf("安装内置 iPXE: %v", err)
+		log.Printf("install bundled iPXE: %v", err)
 	}
 	st, err := store.Open(cfg.DBPath())
 	if err != nil {
@@ -78,22 +78,22 @@ func main() {
 
 	nb := netboot.New(cfg, st)
 	if err := nb.StartTFTP(); err != nil {
-		log.Printf("TFTP 启动失败（需要特权端口 69）: %v", err)
+		log.Printf("TFTP start failed (needs privileged port 69): %v", err)
 	} else {
-		log.Printf("TFTP %s 目录 %s", cfg.TFTPListen, cfg.TFTPDir())
+		log.Printf("TFTP %s dir %s", cfg.TFTPListen, cfg.TFTPDir())
 	}
 	if err := nb.StartDHCP(); err != nil {
-		log.Printf("DHCP 启动失败: %v", err)
+		log.Printf("DHCP start failed: %v", err)
 	} else if nb.CurrentDHCP().Enabled {
 		st := nb.DHCPStatus()
-		log.Printf("DHCP 网卡 %s 监听 %s", st.Interface, st.Listen)
+		log.Printf("DHCP iface %s listen %s", st.Interface, st.Listen)
 	}
 
 	srv := server.New(cfg, st, nb)
 	srv.Version = Version
 	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 15 * time.Second}
 	go func() {
-		log.Printf("控制台 http://%s  版本 %s", displayAddr(cfg.Listen), Version)
+		log.Printf("console http://%s  version %s", displayAddr(cfg.Listen), Version)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
@@ -109,9 +109,9 @@ func main() {
 
 func runBootstrap(args []string) int {
 	fs := flag.NewFlagSet("bootstrap", flag.ExitOnError)
-	cfgPath := fs.String("config", env("RACKAUTO_CONFIG", "configs/rackauto.yaml"), "配置文件")
-	dataDir := fs.String("data-dir", "", "数据目录")
-	offline := fs.Bool("offline", false, "完全离线：只用内置 iPXE 和已缓存的 Ubuntu RAMOS")
+	cfgPath := fs.String("config", env("RACKAUTO_CONFIG", "configs/rackauto.yaml"), "config file")
+	dataDir := fs.String("data-dir", "", "data directory")
+	offline := fs.Bool("offline", false, "offline: bundled iPXE and cached Ubuntu RAMOS only")
 	_ = fs.Parse(args)
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -129,19 +129,19 @@ func runBootstrap(args []string) int {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Rack-auto %s — 裸金属 iPXE 装机平台
+	fmt.Fprintf(os.Stderr, `Rack-auto %s - bare-metal iPXE provisioner
 
-用法:
-  rackauto serve [选项]       启动控制面（HTTP / TFTP / 可选 DHCP）
-  rackauto bootstrap [选项]   安装本机 iPXE、缓存 Ubuntu RAMOS、编译 Agent
+Usage:
+  rackauto serve [flags]      start control plane (HTTP / TFTP / optional DHCP)
+  rackauto bootstrap [flags]  install local iPXE, cache Ubuntu RAMOS, build agent
   rackauto version
 
-选项:
-  -config string       配置文件 (默认 configs/rackauto.yaml)
-  -listen string       HTTP 监听
-  -public-url string   机器可达的控制面 URL
-  -data-dir string     数据目录
-  -offline             bootstrap 时不访问公网（需已有 Ubuntu live-server 缓存）
+Flags:
+  -config string       config file (default configs/rackauto.yaml)
+  -listen string       HTTP listen address
+  -public-url string   URL machines can reach
+  -data-dir string     data directory
+  -offline             bootstrap without Internet (need cached Ubuntu live-server)
 `, Version)
 }
 

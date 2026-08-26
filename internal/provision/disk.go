@@ -22,7 +22,7 @@ func DefaultPartitions(firmware string) []model.Partition {
 
 func Validate(parts []model.Partition) error {
 	if len(parts) == 0 {
-		return fmt.Errorf("至少需要一个分区")
+		return fmt.Errorf("at least one partition is required")
 	}
 	roots := 0
 	for _, p := range parts {
@@ -30,11 +30,11 @@ func Validate(parts []model.Partition) error {
 			roots++
 		}
 		if p.SizeMB < 0 {
-			return fmt.Errorf("分区 %s 大小非法", p.Name)
+			return fmt.Errorf("partition %s has invalid size", p.Name)
 		}
 	}
 	if roots != 1 {
-		return fmt.Errorf("必须且只能有一个根分区 /")
+		return fmt.Errorf("exactly one root partition / is required")
 	}
 	return nil
 }

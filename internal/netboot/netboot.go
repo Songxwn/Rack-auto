@@ -180,7 +180,7 @@ set base http://${next-server}:%s
 echo chaining ${base}/ipxe/script
 chain ${base}/ipxe/script?mac=${mac}&arch=${buildarch}&platform=${platform} || goto failed
 :failed
-echo failed to reach ${base} — check control-plane HTTP :%s
+echo failed to reach ${base} - check control-plane HTTP :%s
 sleep 8
 reboot
 `, port, port)

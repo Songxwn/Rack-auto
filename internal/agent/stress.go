@@ -35,36 +35,36 @@ func (c *Client) RunStress(ctx context.Context, job *model.AgentJob) (*model.Str
 		c.Log(job.ID, line)
 	}
 	if want["cpu"] {
-		c.Progress(job.ID, 10, "CPU 压测中")
+		c.Progress(job.ID, 10, "CPU stress")
 		r := stressCPU(ctx, spec)
 		res.CPU = &r
 		log("CPU: %d workers, %.0f hash/s", r.Workers, r.HashRate)
 	}
 	if want["memory"] {
-		c.Progress(job.ID, 35, "内存压测中")
+		c.Progress(job.ID, 35, "memory stress")
 		r := stressMemory(ctx, spec)
 		res.Memory = &r
-		log("内存: %d MB, %d errors, %.1f MB/s", r.Bytes>>20, r.Errors, r.Throughput)
+		log("memory: %d MB, %d errors, %.1f MB/s", r.Bytes>>20, r.Errors, r.Throughput)
 	}
 	if want["disk"] {
-		c.Progress(job.ID, 60, "磁盘压测中")
+		c.Progress(job.ID, 60, "disk stress")
 		r, err := stressDisk(ctx, spec)
 		if err != nil {
 			return res, err
 		}
 		res.Disk = &r
-		log("磁盘: write %.1f MB/s read %.1f MB/s verify=%v", r.WriteMBs, r.ReadMBs, r.VerifyOK)
+		log("disk: write %.1f MB/s read %.1f MB/s verify=%v", r.WriteMBs, r.ReadMBs, r.VerifyOK)
 	}
 	if want["network"] {
-		c.Progress(job.ID, 80, "网络压测中")
+		c.Progress(job.ID, 80, "network stress")
 		r, err := stressNetwork(ctx, c, spec)
 		if err != nil {
 			return res, err
 		}
 		res.Network = &r
-		log("网络: down %.1f MB/s up %.1f MB/s", r.DownloadMBs, r.UploadMBs)
+		log("network: down %.1f MB/s up %.1f MB/s", r.DownloadMBs, r.UploadMBs)
 	}
-	c.Progress(job.ID, 100, "压测完成")
+	c.Progress(job.ID, 100, "stress finished")
 	return res, nil
 }
 
