@@ -118,27 +118,75 @@ func (inv *Inventory) ProductLine() string {
 	switch {
 	case v != "" && p != "":
 		if strings.HasPrefix(strings.ToLower(p), strings.ToLower(v)) {
+			return collapseSpace(p)
+		}
+		return collapseSpace(v + " " + p)
+	case p != "":
+		return collapseSpace(p)
+	default:
+		return collapseSpace(v)
+	}
+}
+
+func (inv *Inventory) ModelName() string {
+	if inv == nil {
+		return ""
+	}
+	p := collapseSpace(inv.Product)
+	if p != "" {
+		v := strings.TrimSpace(inv.Vendor)
+		if v != "" && strings.HasPrefix(strings.ToLower(p), strings.ToLower(v)+" ") {
+			p = collapseSpace(strings.TrimSpace(p[len(v):]))
+		}
+		if p != "" {
 			return p
 		}
-		return v + " " + p
-	case p != "":
-		return p
-	default:
-		return v
 	}
+	if b := collapseSpace(inv.BoardName); b != "" {
+		return b
+	}
+	return ""
 }
 
 func (inv *Inventory) IdentityName() string {
 	if inv == nil {
 		return ""
 	}
-	if line := inv.ProductLine(); line != "" {
-		return line
+	model := inv.ModelName()
+	serial := strings.TrimSpace(inv.Serial)
+	switch {
+	case model != "" && serial != "":
+		if strings.Contains(strings.ToLower(model), strings.ToLower(serial)) {
+			return model
+		}
+		return model + " " + serial
+	case model != "":
+		return model
+	case serial != "":
+		return serial
+	default:
+		return ""
 	}
-	if inv.Serial != "" {
-		return "SN " + inv.Serial
+}
+
+func IsLiveHostname(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	n = strings.TrimSuffix(n, ".localdomain")
+	n = strings.TrimSuffix(n, ".lan")
+	n = strings.TrimSuffix(n, ".local")
+	switch n {
+	case "ubuntu", "ubuntu-server", "debian", "rocky", "almalinux", "alma", "centos",
+		"ramos", "live", "localhost", "minwinpc", "winpe":
+		return true
 	}
-	return ""
+	if strings.HasPrefix(n, "minint-") || strings.HasPrefix(n, "ramos-") {
+		return true
+	}
+	return false
+}
+
+func collapseSpace(s string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
 }
 
 type Disk struct {

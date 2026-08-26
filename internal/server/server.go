@@ -448,8 +448,8 @@ func (s *Server) detectMachine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.Inventory = inv
-	if ident := inv.IdentityName(); ident != "" && genericMachineName(m.Name, m.MAC) {
-		m.Name = ident
+	if next := autoMachineName(m.Name, m.MAC, inv); next != m.Name {
+		m.Name = next
 	}
 	if err := s.Store.UpsertMachine(&m); err != nil {
 		http.Error(w, err.Error(), 500)
@@ -467,6 +467,32 @@ func (s *Server) detectMachine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, m.Public())
 }
 
+func autoMachineName(cur, mac string, inv *model.Inventory) string {
+	ident := ""
+	if inv != nil {
+		ident = inv.IdentityName()
+	}
+	if ident != "" {
+		if genericMachineName(cur, mac) {
+			return ident
+		}
+		n := strings.TrimSpace(cur)
+		if inv != nil && (strings.EqualFold(n, inv.ModelName()) || strings.EqualFold(n, inv.ProductLine())) {
+			return ident
+		}
+		if inv != nil && inv.Serial != "" && strings.EqualFold(n, "SN "+inv.Serial) {
+			return ident
+		}
+		return cur
+	}
+	if model.IsLiveHostname(cur) {
+		if mac = netboot.NormalizeMAC(mac); mac != "" {
+			return mac
+		}
+	}
+	return cur
+}
+
 func genericMachineName(name, mac string) bool {
 	n := strings.ToLower(strings.TrimSpace(name))
 	mac = netboot.NormalizeMAC(mac)
@@ -474,11 +500,7 @@ func genericMachineName(name, mac string) bool {
 	if n == "" || n == mac || strings.ReplaceAll(n, ":", "") == compact {
 		return true
 	}
-	switch n {
-	case "ubuntu", "debian", "rocky", "almalinux", "alma", "centos", "ramos", "live", "localhost", "localhost.localdomain":
-		return true
-	}
-	return false
+	return model.IsLiveHostname(name)
 }
 
 func (s *Server) withBMC(w http.ResponseWriter, r *http.Request, fn func(bmc.Controller, model.Machine) error) {
@@ -1131,11 +1153,12 @@ func (s *Server) agentRegister(w http.ResponseWriter, r *http.Request) {
 		if in.Inventory != nil && in.Inventory.Firmware != "" {
 			fw = in.Inventory.Firmware
 		}
-		name := in.Hostname
+		name := ""
 		if in.Inventory != nil {
-			if ident := in.Inventory.IdentityName(); ident != "" && genericMachineName(name, in.MAC) {
-				name = ident
-			}
+			name = in.Inventory.IdentityName()
+		}
+		if name == "" && !genericMachineName(in.Hostname, in.MAC) {
+			name = strings.TrimSpace(in.Hostname)
 		}
 		if name == "" {
 			name = in.MAC
@@ -1164,11 +1187,9 @@ func (s *Server) agentRegister(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = s.Store.TouchMachine(m.ID, in.IP, st, fw, in.AgentVersion, in.Inventory)
 		m, _ = s.Store.GetMachine(m.ID)
-		if m.Inventory != nil {
-			if ident := m.Inventory.IdentityName(); ident != "" && genericMachineName(m.Name, m.MAC) {
-				m.Name = ident
-				_ = s.Store.UpsertMachine(&m)
-			}
+		if next := autoMachineName(m.Name, m.MAC, m.Inventory); next != m.Name {
+			m.Name = next
+			_ = s.Store.UpsertMachine(&m)
 		}
 	}
 	writeJSON(w, 200, map[string]any{"machine_id": m.ID, "name": m.Name})
