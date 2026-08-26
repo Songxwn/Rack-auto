@@ -87,6 +87,9 @@ func TestPlanNICByMAC(t *testing.T) {
 		{Kind: model.NICVLAN, Parent: "bond0", VLANID: 80, Name: "bond0.80", Method: "static", Address: "192.168.80.10/24"},
 	}}
 	out := provision.Netplan(cfg)
+	if second := provision.Netplan(cfg); second != out {
+		t.Fatalf("Netplan mutated input:\n%s\n---\n%s", out, second)
+	}
 	if strings.Contains(out, "ens18") || strings.Contains(out, "ens19") {
 		t.Fatalf("must not use RAMOS names: %s", out)
 	}
@@ -137,7 +140,7 @@ func TestPlanNICByMAC(t *testing.T) {
 	if strings.Contains(text, "ens18") {
 		t.Fatalf("nm still has RAMOS name: %s", text)
 	}
-	if !strings.Contains(text, "mac-address=") || !strings.Contains(text, "interface-name=nic0") {
+	if !strings.Contains(text, "mac-address=") || !strings.Contains(text, "interface-name=nic0") || !strings.Contains(text, "master=bond0") {
 		t.Fatalf("nm nic0: %s", text)
 	}
 }

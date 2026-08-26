@@ -230,12 +230,16 @@ func planNICs(cfg model.NetConfig) (eths, bonds, vlans []model.NICConfig) {
 		}
 		bonds[i].Name = orig
 		alias[orig] = orig
-		for j, m := range bonds[i].BondMembers {
+		copied := append([]string(nil), bonds[i].BondMembers...)
+		for j, m := range copied {
 			m = strings.TrimSpace(m)
 			if mapped, ok := alias[m]; ok {
-				bonds[i].BondMembers[j] = mapped
+				copied[j] = mapped
+			} else {
+				copied[j] = m
 			}
 		}
+		bonds[i].BondMembers = copied
 	}
 	for i := range vlans {
 		origParent := strings.TrimSpace(vlans[i].Parent)
@@ -297,11 +301,15 @@ func writePersistentNet(root string, eths []model.NICConfig) error {
 
 func classifyNICs(cfg model.NetConfig) (eths, bonds, vlans []model.NICConfig) {
 	members := map[string]bool{}
+	macOf := map[string]string{}
 	for _, n := range cfg.NICs {
 		if n.Type() == model.NICBond {
 			for _, m := range n.BondMembers {
 				members[m] = true
 			}
+		}
+		if n.MAC != "" && n.Name != "" {
+			macOf[n.Name] = n.MAC
 		}
 	}
 	seen := map[string]bool{}
@@ -311,6 +319,7 @@ func classifyNICs(cfg model.NetConfig) (eths, bonds, vlans []model.NICConfig) {
 			if n.Name == "" {
 				n.Name = "bond0"
 			}
+			n.BondMembers = append([]string(nil), n.BondMembers...)
 			bonds = append(bonds, n)
 		case model.NICVLAN:
 			if n.Name == "" {
@@ -336,7 +345,7 @@ func classifyNICs(cfg model.NetConfig) (eths, bonds, vlans []model.NICConfig) {
 			if seen[m] || m == "" {
 				continue
 			}
-			eths = append(eths, model.NICConfig{Kind: model.NICEthernet, Name: m, Method: "none"})
+			eths = append(eths, model.NICConfig{Kind: model.NICEthernet, Name: m, MAC: macOf[m], Method: "none"})
 			seen[m] = true
 		}
 	}
