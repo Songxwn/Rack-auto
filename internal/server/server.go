@@ -137,6 +137,10 @@ func (s *Server) Handler() http.Handler {
 			fileSrv.ServeHTTP(w, r)
 			return
 		}
+		if filepath.Ext(name) != "" {
+			http.NotFound(w, r)
+			return
+		}
 		r.URL.Path = "/"
 		fileSrv.ServeHTTP(w, r)
 	})

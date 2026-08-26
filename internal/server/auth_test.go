@@ -72,10 +72,21 @@ func TestWebLoginGatesConsoleAllowsIpxeAndAgent(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("health: %d", rec.Code)
 	}
-  rec = doReq(h, "GET", "/i18n.js", "", "", nil)
-  if rec.Code != 200 {
-    t.Fatalf("web i18n without login: %d", rec.Code)
-  }
+	rec = doReq(h, "GET", "/i18n.js", "", "", nil)
+	if rec.Code != 200 {
+		t.Fatalf("web i18n without login: %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "LANG_KEY") {
+		if len(body) > 200 {
+			body = body[:200]
+		}
+		t.Fatalf("i18n.js was not the translation script: %s", body)
+	}
+	rec = doReq(h, "GET", "/missing-static.js", "", "", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing js should 404, not fall back to index: %d", rec.Code)
+	}
 
 	rec = doReq(h, "GET", "/ipxe/boot.ipxe", "", "", nil)
 	if rec.Code != 200 {

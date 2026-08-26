@@ -864,15 +864,15 @@ function renderTemplates() {
   view.onclick = async (ev) => {
     const b = ev.target.closest("button[data-act]");
     if (!b) return;
-    const t = list.find(x => x.id === b.dataset.id);
+    const tpl = list.find(x => x.id === b.dataset.id);
     try {
       if (b.dataset.act === "quote") {
-        if (!t) return;
-        quoteTemplate(t);
+        if (!tpl) return;
+        quoteTemplate(tpl);
         return;
       }
       if (b.dataset.act === "edit") {
-        if (t) templateForm(t, t.kind);
+        if (tpl) templateForm(tpl, tpl.kind);
         return;
       }
       if (b.dataset.act === "delete") {
@@ -1903,7 +1903,7 @@ function accountForm() {
 }
 
 async function boot() {
-  applyChrome();
+  try { applyChrome(); } catch (e) {}
   fetch("/api/v1/health").then(r => r.json()).then(h => {
     if (h && h.version) {
       setVersion(h.version);
