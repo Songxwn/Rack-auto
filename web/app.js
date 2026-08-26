@@ -12,7 +12,7 @@ const kickers = {
   boot: "NETBOOT / DHCP",
 };
 let current = "dash";
-let cache = { machines: [], images: [], jobs: [], events: [], overview: {}, catalog: [], templates: [] };
+let cache = { machines: [], images: [], jobs: [], events: [], overview: {}, catalog: [], templates: [], kmsKeys: [] };
 let authed = false;
 
 function pageTitle(name) {
@@ -73,13 +73,14 @@ $("#refresh").addEventListener("click", () => { if (authed) load().then(render);
 
 async function load() {
   try {
-    const [overview, machines, images, jobs, events, health, catalog, templates] = await Promise.all([
+    const [overview, machines, images, jobs, events, health, catalog, templates, kmsKeys] = await Promise.all([
       api("/overview"), api("/machines"), api("/images"), api("/jobs"), api("/events"),
       fetch("/api/v1/health").then(r => r.json()).catch(() => ({ ok: false })),
       api("/os-catalog").catch(() => OS_CATALOG),
       api("/templates").catch(() => []),
+      api("/windows/kms-keys").catch(() => KMS_KEYS),
     ]);
-    cache = { overview, machines, images, jobs, events, catalog: catalog || OS_CATALOG, templates: templates || [] };
+    cache = { overview, machines, images, jobs, events, catalog: catalog || OS_CATALOG, templates: templates || [], kmsKeys: kmsKeys || KMS_KEYS };
     setHealth(health.ok, health.ok ? "CTRL // ONLINE" : "CTRL // OFFLINE");
     if (health.version) setVersion(health.version);
   } catch (e) {
@@ -594,6 +595,19 @@ const OS_CATALOG = [
     { id: "generic", label: "generic", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
   ]},
 ];
+// Official Microsoft GVLK fallback (same as GET /api/v1/windows/kms-keys).
+const KMS_KEYS = [
+  { id: "2019-standard", version: "2019", edition: "standard", label: "Windows Server 2019 Standard", key: "N69G4-B89J2-4G8F4-WWYCC-J464C" },
+  { id: "2019-datacenter", version: "2019", edition: "datacenter", label: "Windows Server 2019 Datacenter", key: "WMDGN-G9PQG-XVVXX-R3X43-63DFG" },
+  { id: "2019-essentials", version: "2019", edition: "essentials", label: "Windows Server 2019 Essentials", key: "WVDHN-86M7X-466P6-VHXV7-YY726" },
+  { id: "2022-standard", version: "2022", edition: "standard", label: "Windows Server 2022 Standard", key: "VDYBN-27WPP-V4HQT-9VMD4-VMK7H" },
+  { id: "2022-datacenter", version: "2022", edition: "datacenter", label: "Windows Server 2022 Datacenter", key: "WX4NM-KYWYW-QJJR4-XV3QB-6VM33" },
+  { id: "2022-datacenter-azure", version: "2022", edition: "datacenter-azure", label: "Windows Server 2022 Datacenter: Azure Edition", key: "NTBV8-9K7Q8-V27C6-M2BTV-KHMXV" },
+  { id: "2025-standard", version: "2025", edition: "standard", label: "Windows Server 2025 Standard", key: "TVRH6-WHNXV-R9WG3-9XRFY-MY832" },
+  { id: "2025-datacenter", version: "2025", edition: "datacenter", label: "Windows Server 2025 Datacenter", key: "D764K-2NDRG-47T6Q-P8T8W-YP6DF" },
+  { id: "2025-datacenter-azure", version: "2025", edition: "datacenter-azure", label: "Windows Server 2025 Datacenter: Azure Edition", key: "XGN3F-F394H-FD2MY-PP6FD-8MCRC" },
+];
+const DEFAULT_KMS_HOST = "kms.songxwn.com";
 const BOND_MODES = [
   ["802.3ad", "802.3ad (LACP)"],
   ["active-backup", "active-backup"],
@@ -687,6 +701,7 @@ function blankInstallDraft() {
     password: "", timezone: "Asia/Shanghai", firmware: "uefi", disk: "", reboot: true,
     ssh_keys: [""], partitions: defaultParts("uefi", "ubuntu", "24.04"), nics: [blankNic()],
     account_tpl: "", key_tpl: "", wim_index: 0, product_key: "",
+    key_mode: "none", kms_key_id: "", kms_host: "", remove_defender: false,
   };
 }
 
@@ -942,6 +957,32 @@ function defaultWIMIndex(img) {
   return best.index || 1;
 }
 
+function kmsKeyList() {
+  return (cache.kmsKeys && cache.kmsKeys.length) ? cache.kmsKeys : KMS_KEYS;
+}
+
+function matchKMSKeyID(img, wimIndex) {
+  const list = wimImages(img);
+  const wim = list.find(x => Number(x.index) === Number(wimIndex)) || list[0] || {};
+  let ver = String((img && img.os_version) || "").trim();
+  const blob = ((wim.name || "") + " " + (wim.description || "")).toUpperCase();
+  if (!ver) {
+    if (blob.includes("2025")) ver = "2025";
+    else if (blob.includes("2022")) ver = "2022";
+    else if (blob.includes("2019")) ver = "2019";
+  }
+  const n = ((wim.name || "") + " " + (wim.description || "") + " " + (wim.flags || "") + " " + (wim.edition || "")).toUpperCase();
+  let ed = "standard";
+  if (n.includes("AZURE")) ed = "datacenter-azure";
+  else if (n.includes("ESSENTIAL")) ed = "essentials";
+  else if (n.includes("DATACENTER")) ed = "datacenter";
+  const id = ver + "-" + ed;
+  if (kmsKeyList().some(k => k.id === id)) return id;
+  const fb = ver + "-standard";
+  if (kmsKeyList().some(k => k.id === fb)) return fb;
+  return "2022-standard";
+}
+
 function inspectBadge(img) {
   const inx = img && img.inspect;
   if (!inx || !inx.status || inx.status === "skipped") {
@@ -1017,7 +1058,11 @@ function collectInstallForm() {
   if (g("in-disk")) installDraft.disk = g("in-disk").value;
   if (g("in-reboot")) installDraft.reboot = g("in-reboot").checked;
   if (g("in-wim")) installDraft.wim_index = Number(g("in-wim").value || 0);
+  if (g("in-key-mode")) installDraft.key_mode = g("in-key-mode").value || "none";
+  if (g("in-kms-id")) installDraft.kms_key_id = g("in-kms-id").value;
   if (g("in-pkey")) installDraft.product_key = g("in-pkey").value.trim();
+  if (g("in-kms-host")) installDraft.kms_host = g("in-kms-host").value.trim();
+  if (g("in-rm-defender")) installDraft.remove_defender = g("in-rm-defender").checked;
   if (g("in-keys-box")) {
     const keys = $$(".ssh-key").map(el => el.value.trim()).filter(Boolean);
     installDraft.ssh_keys = keys.length ? keys : [""];
@@ -1209,7 +1254,10 @@ function buildInstallBody() {
     ssh_keys: win ? [] : (d.ssh_keys || []).map(s => s.trim()).filter(Boolean),
     disk: d.disk, partitions: win ? [] : d.partitions, network: { nics: netNics }, reboot: d.reboot,
     wim_index: win ? Number(d.wim_index || 0) : undefined,
-    product_key: win ? (d.product_key || "") : undefined,
+    product_key: win && d.key_mode === "custom" ? (d.product_key || "") : undefined,
+    kms_key_id: win && d.key_mode === "kms" ? (d.kms_key_id || "") : undefined,
+    kms_host: win ? (d.kms_host || "") : undefined,
+    remove_defender: win ? !!d.remove_defender : undefined,
     enable_rdp: win ? true : undefined,
   };
 }
@@ -1314,10 +1362,35 @@ function renderInstall() {
           </select>
           <p class="hint">${t("in.wimHint")}</p>
         </div>
-        <div><label>${t("in.pkey")}</label>
+        <div><label>${t("in.keyMode")}</label>
+          <select id="in-key-mode">
+            <option value="none" ${d.key_mode === "none" || !d.key_mode ? "selected" : ""}>${t("in.keyNone")}</option>
+            <option value="custom" ${d.key_mode === "custom" ? "selected" : ""}>${t("in.keyCustom")}</option>
+            <option value="kms" ${d.key_mode === "kms" ? "selected" : ""}>${t("in.keyKMS")}</option>
+          </select>
+        </div>
+      </div>
+      <div class="row ${d.key_mode === "custom" ? "" : "hidden"}" id="in-pkey-row">
+        <div style="flex:1"><label>${t("in.pkey")}</label>
           <input id="in-pkey" value="${escapeHtml(d.product_key || "")}" placeholder="${t("in.pkeyPh")}">
         </div>
       </div>
+      <div class="row ${d.key_mode === "kms" ? "" : "hidden"}" id="in-kms-row">
+        <div style="flex:1"><label>${t("in.kmsKey")}</label>
+          <select id="in-kms-id">
+            ${kmsKeyList().map(k => `<option value="${escapeHtml(k.id)}" ${(d.kms_key_id || matchKMSKeyID(img, wimIdx)) === k.id ? "selected" : ""}>${escapeHtml(k.label)}</option>`).join("")}
+          </select>
+          <p class="hint">${t("in.kmsKeyHint")}</p>
+        </div>
+      </div>
+      <div class="row">
+        <div style="flex:1"><label>${t("in.kmsHost")}</label>
+          <input id="in-kms-host" value="${escapeHtml(d.kms_host || "")}" placeholder="${t("in.kmsHostPh")}">
+          <p class="hint">${t("in.kmsHostHint")}</p>
+        </div>
+      </div>
+      <label class="chk"><input type="checkbox" id="in-rm-defender" ${d.remove_defender ? "checked" : ""}> ${t("in.rmDefender")}</label>
+      <p class="hint">${t("in.rmDefenderHint")}</p>
       <div><label>${t("in.disk")}</label>
         <select id="in-disk">
           <option value="" ${!d.disk ? "selected" : ""}>${t("in.disk0")}</option>
@@ -1555,6 +1628,25 @@ function renderInstall() {
       renderInstall();
     };
   });
+  const keyMode = $("#in-key-mode");
+  if (keyMode) keyMode.onchange = () => {
+    collectInstallForm();
+    if (installDraft.key_mode === "kms") {
+      if (!installDraft.kms_key_id) {
+        installDraft.kms_key_id = matchKMSKeyID(selectedImage(), installDraft.wim_index || defaultWIMIndex(selectedImage()));
+      }
+      if (!installDraft.kms_host) installDraft.kms_host = DEFAULT_KMS_HOST;
+    }
+    renderInstall();
+  };
+  const wimSel = $("#in-wim");
+  if (wimSel) wimSel.onchange = () => {
+    collectInstallForm();
+    if (installDraft.key_mode === "kms") {
+      installDraft.kms_key_id = matchKMSKeyID(selectedImage(), installDraft.wim_index);
+    }
+    renderInstall();
+  };
   $$(".n-method").forEach(el => {
     el.onchange = () => {
       const box = $(".static-fields", el.closest(".nic-row"));

@@ -350,9 +350,12 @@ type InstallSpec struct {
 	Partitions []Partition `json:"partitions"`
 	Network    NetConfig   `json:"network"`
 	Reboot     bool        `json:"reboot"`
-	WIMIndex   int         `json:"wim_index,omitempty"`
-	ProductKey string      `json:"product_key,omitempty"`
-	EnableRDP  bool        `json:"enable_rdp"`
+	WIMIndex       int         `json:"wim_index,omitempty"`
+	ProductKey     string      `json:"product_key,omitempty"`
+	KMSKeyID       string      `json:"kms_key_id,omitempty"`
+	KMSHost        string      `json:"kms_host,omitempty"`
+	RemoveDefender bool        `json:"remove_defender,omitempty"`
+	EnableRDP      bool        `json:"enable_rdp"`
 }
 
 type Partition struct {

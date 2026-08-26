@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/machines/{id}/detect", s.webAuth(s.detectMachine))
 
 	mux.HandleFunc("GET /api/v1/os-catalog", s.webAuth(s.osCatalog))
+	mux.HandleFunc("GET /api/v1/windows/kms-keys", s.webAuth(s.windowsKMSKeys))
 	mux.HandleFunc("GET /api/v1/images", s.webAuth(s.listImages))
 	mux.HandleFunc("POST /api/v1/images", s.webAuth(s.createImage))
 	mux.HandleFunc("POST /api/v1/images/upload", s.webAuth(s.uploadImage))
@@ -601,6 +602,10 @@ func (s *Server) osCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, osprofile.Catalog())
 }
 
+func (s *Server) windowsKMSKeys(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, provision.ListKMSKeys())
+}
+
 func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Store.ListImages()
 	if err != nil {
@@ -992,6 +997,12 @@ func (s *Server) createInstall(w http.ResponseWriter, r *http.Request) {
 		}
 		if spec.WIMIndex <= 0 {
 			spec.WIMIndex = 1
+		}
+		if id := strings.TrimSpace(spec.KMSKeyID); id != "" {
+			if _, ok := provision.LookupKMSKey(id); !ok {
+				http.Error(w, "unknown kms_key_id", 400)
+				return
+			}
 		}
 		spec.EnableRDP = true
 		if spec.Timezone == "" {

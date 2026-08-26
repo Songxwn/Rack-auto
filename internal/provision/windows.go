@@ -307,7 +307,7 @@ func UnattendXML(spec model.InstallSpec, pxeMAC string) string {
 	userEsc := xmlEscape(user)
 	hostEsc := xmlEscape(host)
 	org := "Rack-auto"
-	key := strings.TrimSpace(spec.ProductKey)
+	key := EffectiveProductKey(spec)
 	keyXML := "<ProductKey><WillShowUI>OnError</WillShowUI></ProductKey>"
 	if key != "" {
 		keyXML = "<ProductKey><Key>" + xmlEscape(key) + "</Key><WillShowUI>OnError</WillShowUI></ProductKey>"
@@ -347,6 +347,7 @@ func UnattendXML(spec model.InstallSpec, pxeMAC string) string {
       </FirewallGroups>
     </component>`
 	}
+	firstLogon := buildFirstLogonCommands(spec)
 	tcp, dns := windowsNetworkXML(spec.Network, pxeMAC)
 	return `<?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
@@ -402,19 +403,43 @@ func UnattendXML(spec model.InstallSpec, pxeMAC string) string {
         <LogonCount>1</LogonCount>
       </AutoLogon>
       <FirstLogonCommands>
-        <SynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <CommandLine>cmd.exe /c netsh advfirewall firewall set rule group="@FirewallAPI.dll,-28752" new enable=Yes</CommandLine>
-        </SynchronousCommand>
-        <SynchronousCommand wcm:action="add">
-          <Order>2</Order>
-          <CommandLine>cmd.exe /c reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f</CommandLine>
-        </SynchronousCommand>
-      </FirstLogonCommands>
+` + firstLogon + `      </FirstLogonCommands>
     </component>
   </settings>
 </unattend>
 `
+}
+
+func buildFirstLogonCommands(spec model.InstallSpec) string {
+	var cmds []string
+	cmds = append(cmds,
+		`cmd.exe /c netsh advfirewall firewall set rule group="@FirewallAPI.dll,-28752" new enable=Yes`,
+		`cmd.exe /c reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f`,
+	)
+	if host := strings.TrimSpace(spec.KMSHost); host != "" {
+		host = strings.ReplaceAll(host, `"`, "")
+		host = strings.ReplaceAll(host, "&", "")
+		host = strings.ReplaceAll(host, "<", "")
+		host = strings.ReplaceAll(host, ">", "")
+		cmds = append(cmds,
+			`cmd.exe /c cscript //B %SystemRoot%\System32\slmgr.vbs /skms `+host,
+			`cmd.exe /c cscript //B %SystemRoot%\System32\slmgr.vbs /ato`,
+		)
+	}
+	if spec.RemoveDefender {
+		cmds = append(cmds,
+			`powershell.exe -NoProfile -WindowStyle Hidden -Command "Try { Uninstall-WindowsFeature -Name Windows-Defender -IncludeManagementTools -ErrorAction Stop } Catch {}; Try { Uninstall-WindowsFeature -Name Windows-Defender-Features -IncludeManagementTools -ErrorAction Stop } Catch {}"`,
+		)
+	}
+	var b strings.Builder
+	for i, cmd := range cmds {
+		fmt.Fprintf(&b, `        <SynchronousCommand wcm:action="add">
+          <Order>%d</Order>
+          <CommandLine>%s</CommandLine>
+        </SynchronousCommand>
+`, i+1, xmlEscape(cmd))
+	}
+	return b.String()
 }
 
 func windowsNetworkXML(netcfg model.NetConfig, pxeMAC string) (tcp, dns string) {
