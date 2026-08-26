@@ -16,11 +16,12 @@
 8. [启动服务](#8-启动服务)
 9. [配置 DHCP](#9-配置-dhcp)
 10. [第一次装机](#10-第一次装机)
-11. [用 systemd 长期跑](#11-用-systemd-长期跑)
-12. [升级控制面（下载二进制覆盖）](#12-升级控制面下载二进制覆盖)
-13. [Docker 部署](#13-docker-部署)
-14. [自检清单](#14-自检清单)
-15. [常见问题](#15-常见问题)
+11. [自己用 KVM 做装机镜像](#11-自己用-kvm-做装机镜像)
+12. [用 systemd 长期跑](#12-用-systemd-长期跑)
+13. [升级控制面（下载二进制覆盖）](#13-升级控制面下载二进制覆盖)
+14. [Docker 部署](#14-docker-部署)
+15. [自检清单](#15-自检清单)
+16. [常见问题](#16-常见问题)
 
 ---
 
@@ -118,7 +119,7 @@ ARM 控制面把 `amd64` 换成 `arm64`，Agent 目录用 `data/agent/aarch64/`�
 
 若还要给 ARM 服务器装机，再下一份 `rackauto-linux-arm64.tar.gz`，把其中的 Agent 放到 `data/agent/aarch64/rackauto-agent`。
 
-Release 包里**没有** YAML 和 systemd 单元，接着按 [第 5 节](#5-单独下载源码配置文件) 单独下载即可，不必 `git clone`。以后升级不要重装目录，按 [第 12 节](#12-升级控制面下载二进制覆盖) 下载新包、覆盖这两个二进制即可。
+Release 包里**没有** YAML 和 systemd 单元，接着按 [第 5 节](#5-单独下载源码配置文件) 单独下载即可，不必 `git clone`。以后升级不要重装目录，按 [第 13 节](#13-升级控制面下载二进制覆盖) 下载新包、覆盖这两个二进制即可。
 
 ### B. 从源码编译（可选）
 
@@ -142,7 +143,7 @@ go build -o bin/rackauto-agent ./cmd/rackauto-agent
 
 ### C. Docker
 
-见 [第 13 节](#13-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 Ubuntu live-server ISO。
+见 [第 14 节](#14-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 Ubuntu live-server ISO。
 
 ---
 
@@ -194,7 +195,7 @@ cd Rack-auto
 git sparse-checkout set configs deploy
 ```
 
-下好后去 [第 6 节](#6-写配置最容易写错的地方) 改 `public_url` 和 `api_token`。systemd 单元在 [第 11 节](#11-用-systemd-长期跑) 安装。升级二进制时**不要**再覆盖已经改过的 `rackauto.yaml`。
+下好后去 [第 6 节](#6-写配置最容易写错的地方) 改 `public_url` 和 `api_token`。systemd 单元在 [第 12 节](#12-用-systemd-长期跑) 安装。升级二进制时**不要**再覆盖已经改过的 `rackauto.yaml`。
 
 ---
 
@@ -389,7 +390,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 建议第一次用一台**可以重装**的机器，磁盘会被覆盖。
 
-### 9.1 登记机器（两种方式）
+### 10.1 登记机器（两种方式）
 
 **有 BMC：** 打开「机器」→「登记机器 / BMC」。填名称、MAC（PXE 那块网卡）、固件（UEFI 或 BIOS）、BMC 协议与地址。保存后可用「开机 / PXE重启」试一下。配了 **Redfish** 时，点「检测」会从 BMC 读取品牌、型号、序列号。
 
@@ -397,20 +398,21 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 列表和详情里都能看到这些信息。点 **装机** 会跳到装机向导并选中这台机器。
 
-### 9.2 准备镜像
+### 10.2 准备镜像
 
 「镜像」页先选**系统和版本**（Debian 12/13、Ubuntu 24.04、Rocky 9 等），登记 URL 和**本机上传**两栏都可以单独选，再：
 
-- **登记 URL**（推荐）：例如 Ubuntu 24.04 cloud  
+- **登记 URL**：例如 Ubuntu 24.04 cloud  
   `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`  
   类型选「云镜像（整盘 qcow2/raw）」
 - **上传文件**：先在上传栏选系统和版本、镜像类型，再选文件。页面会显示进度、速率和剩余时间；传到控制面后会检测分区表和引导。
+- **自己做镜像**：要用 KVM 装一套再导出 qcow2 时，按 [第 11 节](#11-自己用-kvm-做装机镜像)。BIOS 与 UEFI 各做一张；分区、cloud-init、OpenSSH、扩容工具都必须按那一节的要求。
 
 系统和版本决定装机时怎么写网卡（Ubuntu/Debian 13 用 netplan，Debian 11/12 用 ifupdown，Rocky/Alma 8 用 ifcfg，Rocky/Alma 9+ 用 NetworkManager），以及默认根文件系统（RHEL 系多为 xfs）。装完会把根分区扩到磁盘剩余空间。
 
 待装机服务器也要能访问这个 URL；若只有内网，把镜像传到控制面「上传」，URL 会变成 `http://<public_url>/images/...`。
 
-### 9.3 下发任务
+### 10.3 下发任务
 
 打开「装机」，按三步向导用下拉框和表单填写，不再贴 JSON：
 
@@ -420,7 +422,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 有 BMC 可在最后一步点「同时 BMC PXE 重启」。到「任务」看进度和日志。成功后机器会切回本地磁盘重启。
 
-### 9.4 没有 PXE 时的调试
+### 10.4 没有 PXE 时的调试
 
 在已经能进系统的 Linux 上（不要在生产盘上乱试）可以手工跑 Agent：
 
@@ -430,7 +432,166 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 ---
 
-## 11. 用 systemd 长期跑
+## 11. 自己用 KVM 做装机镜像
+
+官方 Ubuntu cloud 镜像可以直接用。要预装驱动、软件或改成自己的发行版时，用 **KVM 装一套，再导出 qcow2**。Rack-auto 把它当「整盘云镜像」写到服务器磁盘，然后扩根分区、注入账号和网卡。
+
+BIOS 和 UEFI **各做一张盘**，装机向导里的固件必须和镜像一致。虚拟磁盘 8～16GB 即可（稀疏 qcow2），真机容量再大也会在写盘后把根分区扩满。
+
+### 11.1 分区必须长这样
+
+不要 swap，不要 LVM，不要加密，不要独立 `/boot`（内核放在根分区）。否则写盘后扩容对不上，检测也会报分区异常。
+
+| 固件 | 分区表 | 分区 | 引导 |
+| --- | --- | --- | --- |
+| **BIOS** | **MBR（dos）** | **只有 1 个**：整盘一个 Linux 根分区（ext4 或 xfs），**不要 GPT、不要 biosboot** | GRUB 装到磁盘 MBR；该分区必须有 **启动标志**（boot/active） |
+| **UEFI** | GPT | **只有 2 个**：① EFI 系统分区（FAT32，约 200～512MB，挂 `/boot/efi`）② 根分区（ext4 或 xfs） | ESP 里要有 `\EFI\BOOT\BOOTX64.EFI`（可用 grub 的 `--removable` 写出） |
+
+BIOS 若用 GPT，安装器通常还会再划一块 biosboot，就不是「一个分区」了。UEFI 不要再加第三个分区。
+
+### 11.2 镜像里必须有的软件
+
+装完系统后、关机导出前，用 root 装好并 **enable**。缺任何一项，写盘后可能没有 SSH、cloud-init 不跑、或根分区不会随磁盘变大。
+
+| 作用 | Debian / Ubuntu | Rocky / Alma / CentOS |
+| --- | --- | --- |
+| cloud-init | `cloud-init` | `cloud-init` |
+| 扩容分区 | `cloud-guest-utils`（`growpart`）+ `e2fsprogs` | `cloud-utils-growpart` + `xfsprogs` + `e2fsprogs` |
+| SSH | `openssh-server` | `openssh-server` |
+
+Debian / Ubuntu：
+
+```bash
+apt-get update
+apt-get install -y cloud-init cloud-guest-utils e2fsprogs openssh-server
+systemctl enable ssh
+for u in cloud-init-local cloud-init cloud-config cloud-final; do
+  systemctl enable "$u" 2>/dev/null || true
+done
+printf 'datasource_list: [ NoCloud, None ]\n' > /etc/cloud/cloud.cfg.d/90-datasource.cfg
+```
+
+Rocky / Alma：
+
+```bash
+dnf install -y cloud-init cloud-utils-growpart openssh-server e2fsprogs xfsprogs
+systemctl enable sshd
+for u in cloud-init-local cloud-init cloud-config cloud-final; do
+  systemctl enable "$u" 2>/dev/null || true
+done
+printf 'datasource_list: [ NoCloud, None ]\n' > /etc/cloud/cloud.cfg.d/90-datasource.cfg
+```
+
+再确认：
+
+- `cloud-init` **不要** `apt remove` / `systemctl disable` / `touch /etc/cloud/cloud-init.disabled`。第一次开机要靠它写主机名和用户。
+- `sshd` 开机自启。Rack-auto 会再写入 `PermitRootLogin yes`；镜像里有 OpenSSH 即可。
+- `/etc/fstab` 里不能有 swap 行。
+- 网卡保持 DHCP 即可，不要把 KVM 里的静态 IP 写死；装机时会按 MAC 重写为 `nic0` / `nic1`。
+
+### 11.3 用 virt-install 建虚拟机
+
+在一台支持虚拟化的 Linux 上（不必是 PXE 控制面）：
+
+```bash
+# Debian/Ubuntu 宿主
+sudo apt-get install -y qemu-kvm libvirt-daemon-system virtinst ovmf
+# Rocky 宿主：sudo dnf install -y qemu-kvm libvirt virt-install edk2-ovmf
+sudo systemctl enable --now libvirtd
+```
+
+把发行版 ISO 放到宿主上。磁盘用 qcow2。`--os-variant` 按系统改（`debian12`、`ubuntu24.04`、`rocky9` 等，`osinfo-query os` 可查；没有对应项就用 `generic`）。
+
+BIOS（SeaBIOS，对应装机向导选 BIOS）：
+
+```bash
+sudo virt-install \
+  --name ra-debian12-bios \
+  --memory 2048 --vcpus 2 \
+  --disk path=/var/lib/libvirt/images/ra-debian12-bios.qcow2,size=8,format=qcow2 \
+  --cdrom /path/to/debian-12.iso \
+  --os-variant debian12 \
+  --boot hd,cdrom \
+  --network network=default \
+  --graphics vnc,listen=0.0.0.0
+```
+
+UEFI（OVMF，对应装机向导选 UEFI）：
+
+```bash
+sudo virt-install \
+  --name ra-debian12-uefi \
+  --memory 2048 --vcpus 2 \
+  --disk path=/var/lib/libvirt/images/ra-debian12-uefi.qcow2,size=8,format=qcow2 \
+  --cdrom /path/to/debian-12.iso \
+  --os-variant debian12 \
+  --boot uefi \
+  --network network=default \
+  --graphics vnc,listen=0.0.0.0
+```
+
+也可用 `virt-manager` 图形安装，分区规则和第 11.1 节相同。
+
+安装器里选 **手动/自定义分区**，不要「整个磁盘自动」：
+
+1. **BIOS：** 分区表 MBR。只建一个主分区，类型 Linux，挂载 `/`，文件系统 ext4（Rocky 可用 xfs），打上 **boot**。引导器安装位置选 **磁盘**（`/dev/vda`），不是某个分区。
+2. **UEFI：** 分区表 GPT。第一块 EFI（FAT32，`/boot/efi`，200～512MB）；第二块根分区挂 `/`。不要 swap。
+
+进系统后按 11.2 装包。UEFI 再执行一次，确保检测能看到 `BOOTX64.EFI`：
+
+```bash
+# Debian/Ubuntu
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=BOOT --removable
+update-grub
+# Rocky/Alma
+dnf install -y grub2-efi-x64 shim-x64
+grub2-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable
+```
+
+BIOS 确认启动标志（应看到 `*`）：
+
+```bash
+fdisk -l /dev/vda
+```
+
+若不用下一节的 `virt-sysprep`，关机前清一次实例状态：
+
+```bash
+cloud-init clean --logs
+truncate -s 0 /etc/machine-id
+rm -f /var/lib/dbus/machine-id
+poweroff
+```
+
+否则直接 `poweroff`。
+
+### 11.4 导出 qcow2 并上传
+
+可选：清掉本机身份，避免每台装出来的机器 `machine-id` / SSH 主机密钥相同（会保留 cloud-init 软件包）：
+
+```bash
+sudo virt-sysprep -a /var/lib/libvirt/images/ra-debian12-uefi.qcow2 \
+  --operations machine-id,ssh-hostkeys,net-hostname,net-hwaddr,dhcp-client-state,logfiles,tmp-files,bash-history,cloud-init
+```
+
+压缩导出（推荐，上传更快）：
+
+```bash
+sudo qemu-img convert -p -c -O qcow2 \
+  /var/lib/libvirt/images/ra-debian12-uefi.qcow2 \
+  ./debian12-uefi.qcow2
+```
+
+BIOS 那张对 `ra-debian12-bios.qcow2` 再转一次。到控制台「镜像」：系统和版本选对，类型选 **云镜像（整盘 qcow2/raw）**，上传。检测应类似：
+
+- BIOS 盘：`bootable: BIOS; root ext4 p1`（或 xfs）
+- UEFI 盘：`bootable: UEFI (BOOTX64.EFI); root ext4 p2`
+
+装机时固件与镜像一致。不要拿 BIOS 盘去装 UEFI 机器。
+
+---
+
+## 12. 用 systemd 长期跑
 
 单元文件在源码 `deploy/rackauto.service`。没 clone 时按 [第 5 节](#5-单独下载源码配置文件) 下到 `/opt/rackauto/deploy/`。
 
@@ -449,7 +610,7 @@ sudo journalctl -u rackauto -f
 
 ---
 
-## 12. 升级控制面（下载二进制覆盖）
+## 13. 升级控制面（下载二进制覆盖）
 
 升级 = **下载 GitHub Release → 覆盖两个二进制 → 重启进程**。不要在控制面 `go build`，也不要重装整个 `/opt/rackauto`。
 
@@ -552,7 +713,7 @@ curl -sS http://127.0.0.1:8080/api/v1/health
 
 ---
 
-## 13. Docker 部署
+## 14. Docker 部署
 
 Compose 使用 `network_mode: host`，这样 DHCP/TFTP 才能绑网卡。构建镜像需要仓库源码（Dockerfile 的 context 是仓库根），请 `git clone`。只跑 Release 二进制时不要走 Compose，用第 4 节 A + [第 5 节](#5-单独下载源码配置文件) 即可。
 
@@ -570,7 +731,7 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 ---
 
-## 14. 自检清单
+## 15. 自检清单
 
 按顺序打勾，卡在哪一步就去下一节对号入座。
 
@@ -582,20 +743,24 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 - [ ] DHCP：要么内置显示运行中，要么现有 dhcpd/dnsmasq 已改 next-server
 - [ ] 服务器 PXE 后能看到 iPXE，而不是一直 `DHCP...`
 - [ ] 机器列表出现该节点，或你已手工登记 MAC
+- [ ] 自制镜像已按 [第 11 节](#11-自己用-kvm-做装机镜像) 分区（BIOS 一分区 / UEFI 仅 EFI+根），并装好 cloud-init、扩容工具、OpenSSH
 - [ ] 装机任务日志里能看到写盘、注入用户，而不是下载内核 404
 
 ---
 
-## 15. 常见问题
+## 16. 常见问题
 
 **列表里没有品牌/型号/序列号**  
 进 RAMOS 后 Agent 会读 DMI 自动上报。已配 **Redfish** 的机器可在「机器」里点「检测」，不进内存系统也能从 BMC 拉。仅 IPMI 时请先 PXE。点 **装机** 会跳到向导并选中该机。
 
 **如何升级到新版本**  
-不要重装、不要编译。按 [第 12 节](#12-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto` 和 `rackauto-agent`，重启控制面。只换其中一个，装机行为不会完整更新。
+不要重装、不要编译。按 [第 13 节](#13-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto` 和 `rackauto-agent`，重启控制面。只换其中一个，装机行为不会完整更新。
 
 **镜像要选系统和版本**  
-Debian 12 和 Ubuntu 24.04 写网卡的方式不同（ifupdown / netplan），Rocky 8 和 9 也不一样（ifcfg / NetworkManager）。登记或上传时选对系统和版本，装机才会写入对应配置。Bond 和 VLAN（含 Bond 上的 VLAN）在装机向导第 3 步添加。
+Debian 12 和 Ubuntu 24.04 写网卡的方式不同（ifupdown / netplan），Rocky 8 和 9 也不一样（ifcfg / NetworkManager）。登记或上传时选对系统和版本，装机才会写入对应配置。Bond 和 VLAN（含 Bond 上的 VLAN）在装机向导第 3 步添加。自己用 KVM 导出的 qcow2 见 [第 11 节](#11-自己用-kvm-做装机镜像)。
+
+**自己做的 qcow2 检测失败 / 装完没有 SSH**  
+BIOS 必须是 **MBR、只有一个带启动标志的根分区**；UEFI 必须是 **EFI + 根分区**，ESP 里要有 `BOOTX64.EFI`。不要 swap、不要 LVM、不要单独 `/boot`。镜像里要安装并启用 **cloud-init**、**openssh-server**，以及扩容工具（Debian/Ubuntu：`cloud-guest-utils`；Rocky/Alma：`cloud-utils-growpart`）。步骤见 [第 11 节](#11-自己用-kvm-做装机镜像)。
 
 **装完后网卡没地址 / 配置不生效**  
 RAMOS 是 Ubuntu live，网卡名常是 `ens3` / `enp1s0`；Debian、Rocky 装完后往往是另一套名字。v0.4.18 起按 MAC 绑定并改名为 `nic0`、`nic1`。请换新的 `rackauto` 和 `rackauto-agent` 后重新 PXE 再装。
@@ -660,7 +825,7 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 镜像 URL 机器访问不了（HTTPS 证书、要代理）。改成控制面本地上传。确认类型选对（cloud 的 qcow2 选「云镜像」）。
 
 **装完进不了系统**  
-先看镜像页「引导」列：整盘云镜像需要有 UEFI ESP 和/或 BIOS boot 分区，且与向导里选的固件一致。v0.4.10 起上传/检测会解析 GPT 和 EFI 文件；装机时不再用向导分区表覆盖镜像自带的 fstab。若仍起不来：BMC 把下次启动改回磁盘，确认机器固件模式和镜像匹配。
+先看镜像页「引导」列：整盘云镜像需要能匹配向导里的固件。BIOS 盘要有 MBR 启动标志；UEFI 盘要有 ESP 和 EFI 加载器。自制镜像按 [第 11 节](#11-自己用-kvm-做装机镜像)。v0.4.10 起上传/检测会解析 GPT 和 EFI 文件；装机时不再用向导分区表覆盖镜像自带的 fstab。若仍起不来：BMC 把下次启动改回磁盘，确认机器固件模式和镜像匹配。
 
 **误把内置 DHCP 开到办公网**  
 立刻在「网络引导」点「停止 DHCP」，并在交换机上确认没有别人拿错地址。生产环境优先沿用现有 DHCP。

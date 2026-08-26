@@ -74,7 +74,7 @@ sudo systemctl start rackauto
 curl -sS http://127.0.0.1:8080/api/v1/health
 ```
 
-配置、数据库、镜像、ISO 都不要动。两个二进制都要换；已在 RAMOS 里的机器需重新 PXE 才能拿到新 Agent。逐步说明（含文件名带平台后缀的旧包、ARM、Docker）见 [升级教程](docs/deploy.md#12-升级控制面下载二进制覆盖)。
+配置、数据库、镜像、ISO 都不要动。两个二进制都要换；已在 RAMOS 里的机器需重新 PXE 才能拿到新 Agent。逐步说明（含文件名带平台后缀的旧包、ARM、Docker）见 [升级教程](docs/deploy.md#13-升级控制面下载二进制覆盖)。
 
 ### 2. 写一份配置
 
@@ -117,7 +117,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 - **实验室空网段：** 打开「网络引导」，选中连交换机的**接入网卡**，启用内置 DHCP，点保存并应用。同一二层不要再开别的 DHCP。
 - **机房已有 DHCP：** 不要开内置。把 `next-server` 指到控制面；BIOS 用 `undionly.kpxe`，UEFI 用 `ipxe.efi`。页面底部有可复制的 dhcpd / dnsmasq 片段。
 
-接着在「机器」里登记 BMC（或让服务器 PXE 一次自动报到），在「镜像」登记 cloud 镜像 URL，到「装机」填用户和 SSH 公钥后下发。逐步点击说明在 [第一次装机](docs/deploy.md#10-第一次装机)。
+接着在「机器」里登记 BMC（或让服务器 PXE 一次自动报到），在「镜像」登记 cloud 镜像 URL 或上传自己用 KVM 导出的 qcow2（[怎么做镜像](docs/deploy.md#11-自己用-kvm-做装机镜像)），到「装机」填用户和 SSH 公钥后下发。逐步点击说明在 [第一次装机](docs/deploy.md#10-第一次装机)。
 
 ## 常用配置
 
@@ -138,7 +138,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 ## 长期运行
 
 - systemd 单元示例：[deploy/rackauto.service](deploy/rackauto.service)（无源码时按 [第 5 节](docs/deploy.md#5-单独下载源码配置文件) 下载）
-- Docker（host 网络）需要 clone 源码：先 `cp configs/rackauto.example.yaml configs/rackauto.yaml` 并改好 `public_url`，再 `cd deploy && docker compose up -d --build`，然后在容器里跑一次 `bootstrap`。细节在 [Docker 部署](docs/deploy.md#13-docker-部署)。
+- Docker（host 网络）需要 clone 源码：先 `cp configs/rackauto.example.yaml configs/rackauto.yaml` 并改好 `public_url`，再 `cd deploy && docker compose up -d --build`，然后在容器里跑一次 `bootstrap`。细节在 [Docker 部署](docs/deploy.md#14-docker-部署)。
 
 ## API 摘要
 
