@@ -47,7 +47,7 @@
 | 一台控制面主机 | **强烈建议 Linux**。要绑定 UDP 67/69，Windows 只能先用来看 Web，不适合当 PXE 服务器。 |
 | 一块装机网卡 | 和控制面、待装机服务器在**同一二层网段**（同一交换机/VLAN）。 |
 | 待装机服务器 | 支持 PXE；有 BMC（IPMI/Redfish）会更省事，没有也可以人肉进 BIOS 选网卡启动。 |
-| 出网 | 第一次 `bootstrap` 要下载 Ubuntu 26.04 live-server ISO（约 **2.7GB**）。默认探测多家镜像并选延迟最低的；也可把 `ubuntu_mirror` 钉死。 |
+| 出网 | 第一次 `bootstrap` 要下载 Ubuntu 26.04 live-server ISO（约 **2.7GB**）。默认从 Ubuntu 官方 CD 镜像列表取路径并选延迟最低的（不含阿里云）；也可把 `ubuntu_mirror` 钉死。 |
 | 内存 | 待装机服务器建议 **≥ 4GB**。PXE 客户端只把 `casper.iso`（squashfs 层，大约几百 MB～1.5GB）拉进内存，不再下 2.7GB 整包。2GB 的虚拟机仍可能 OOM。 |
 | 磁盘 | 控制面预留约 **5GB** 给 RAMOS（完整 ISO 缓存 + `casper.iso`）；另外再为 cloud 镜像留空间。 |
 | 管理员权限 | 绑定 DHCP/TFTP 特权端口需要 root（或等价能力）。 |
@@ -183,12 +183,12 @@ iPXE 固件已经打进控制面程序，**PXE 阶段不会访问 boot.ipxe.org*
 
 RAMOS 使用 **Ubuntu 26.04 LTS live-server**（当前最新稳定版 LTS）。第一次需要联网把 ISO 缓存到本机，抽出 `casper/vmlinuz`、`casper/initrd`，再打一份只含 squashfs 层的 `casper.iso`；之后整个装机网可以离线。PXE 客户端只拉 `casper.iso`，不会把 2.7GB 整包灌进内存。
 
-`ubuntu_mirror` 留空（或写成 `auto`）时，bootstrap 会并行探测阿里云、清华、中科大、华为云等镜像以及官方源，选 **HTTP 延迟最低** 且能拿到 `SHA256SUMS` 的那一家。想钉死某源时再填完整 URL：
+`ubuntu_mirror` 留空（或写成 `auto`）时，bootstrap 会从 [Ubuntu 官方 CD 镜像列表](https://launchpad.net/ubuntu/+cdmirrors) 拉取路径（**不使用阿里云**），再并行探测并选 **HTTP 延迟最低** 且能拿到 `SHA256SUMS` 的那一家。ISO 文件名和校验和以 `releases.ubuntu.com` / `cdimage.ubuntu.com` 为准。想钉死某源时再填完整 URL：
 
 ```yaml
 bootstrap:
   ubuntu_release: "26.04"
-  ubuntu_mirror: "https://mirrors.aliyun.com/ubuntu-releases"
+  ubuntu_mirror: "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases"
 ```
 
 若已经有 ISO，不必再下：

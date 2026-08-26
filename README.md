@@ -102,7 +102,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | `dhcp.enabled` | 内置 DHCP，也可只在网页里开关 |
 | `dhcp.interface` | 只在这块接入网卡上应答 PXE |
 | `bootstrap.ubuntu_release` | RAMOS 用的 Ubuntu LTS，默认 `26.04` |
-| `bootstrap.ubuntu_mirror` | 空/`auto` 则自动选延迟最低的镜像；也可钉死 URL |
+| `bootstrap.ubuntu_mirror` | 空/`auto` 则从 Ubuntu 官方 CD 镜像列表取路径并选延迟最低的（不含阿里云）；也可钉死 URL |
 
 ## 长期运行
 

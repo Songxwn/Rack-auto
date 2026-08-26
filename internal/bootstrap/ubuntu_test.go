@@ -34,9 +34,9 @@ func TestUbuntuISOBase(t *testing.T) {
 	if got != "https://releases.ubuntu.com/26.04" {
 		t.Fatalf("official %s", got)
 	}
-	cfg.Bootstrap.UbuntuMirror = "https://mirrors.aliyun.com/ubuntu-releases/"
+	cfg.Bootstrap.UbuntuMirror = "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/"
 	got = ubuntuISOBase(cfg, "26.04", "amd64")
-	if got != "https://mirrors.aliyun.com/ubuntu-releases/26.04" {
+	if got != "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-releases/26.04" {
 		t.Fatalf("mirror %s", got)
 	}
 	got = ubuntuISOBase(cfg, "26.04", "arm64")

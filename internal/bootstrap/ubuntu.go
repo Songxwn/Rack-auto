@@ -352,20 +352,25 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 			return fallback, "", base, nil
 		}
 	} else {
-		fmt.Println("   探测 Ubuntu 镜像延迟（选最低）…")
-		hit := pickFastestMirror(nil, mirrorsForArch(debArch), rel)
+		fmt.Println("   从 Ubuntu 官方获取 CD 镜像路径并探测延迟…")
+		officialBase := ubuntuISOBase(cfg, rel, debArch)
+		sumsURL := strings.TrimRight(officialBase, "/") + "/SHA256SUMS"
+		officialBody, officialErr := httpGetBody(hc, sumsURL)
+		hit := pickFastestMirror(nil, mirrorsForArch(hc, debArch), rel)
 		if hit.err != nil {
 			fmt.Printf("   ! %v，回退官方源\n", hit.err)
-			base = ubuntuISOBase(cfg, rel, debArch)
-			sumsURL := strings.TrimRight(base, "/") + "/SHA256SUMS"
-			body, err = httpGetBody(hc, sumsURL)
-			if err != nil {
-				fmt.Printf("   ! 无法读取 %s（%v），回退文件名 %s\n", sumsURL, err, fallback)
+			base = officialBase
+			if officialErr != nil {
+				fmt.Printf("   ! 无法读取 %s（%v），回退文件名 %s\n", sumsURL, officialErr, fallback)
 				return fallback, "", base, nil
 			}
+			body = officialBody
 		} else {
 			base = hit.base
 			body = hit.sums
+			if officialErr == nil && strings.TrimSpace(officialBody) != "" {
+				body = officialBody
+			}
 			fmt.Printf("   选用 %s（%s）%s\n", hit.name, formatLatency(hit.d), base)
 		}
 	}
