@@ -345,12 +345,14 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 ### 9.2 准备镜像
 
-「镜像」页可以：
+「镜像」页先选**系统和版本**（Debian 12/13、Ubuntu 24.04、Rocky 9 等），再：
 
 - **登记 URL**（推荐）：例如 Ubuntu 24.04 cloud  
   `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`  
   类型选「云镜像（整盘 qcow2/raw）」
 - **上传文件**：大文件更建议 URL，让 RAMOS 自己去拉
+
+系统和版本决定装机时怎么写网卡（Ubuntu/Debian 13 用 netplan，Debian 11/12 用 ifupdown，Rocky/Alma 8 用 ifcfg，Rocky/Alma 9+ 用 NetworkManager），以及默认根文件系统（RHEL 系多为 xfs）。装完会把根分区扩到磁盘剩余空间。
 
 待装机服务器也要能访问这个 URL；若只有内网，把镜像传到控制面「上传」，URL 会变成 `http://<public_url>/images/...`。
 
@@ -360,7 +362,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 1. 选择机器和镜像，选固件与时区
 2. 选择登录用户，填密码；公钥可「添加」或「导入 .pub 文件」
-3. 从机器上报的库存里选择目标磁盘和网卡。根文件系统镜像可在分区表里增删分区（勾选「使用剩余空间」）；整盘云镜像会保留镜像自带分区。网卡选 DHCP 或静态后再填 IP / 网关 / DNS。
+3. 从机器上报的库存里选择目标磁盘和网卡。根文件系统镜像可在分区表里增删分区（勾选「使用剩余空间」）；整盘云镜像会保留镜像自带分区，并在写盘后把根分区扩到整盘。网卡可选 DHCP / 静态，也可添加 Bond 和 VLAN（VLAN 可以建在 Bond 上）。
 
 有 BMC 可在最后一步点「同时 BMC PXE 重启」。到「任务」看进度和日志。成功后机器会切回本地磁盘重启。
 
@@ -527,6 +529,9 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 **如何升级到新版本**  
 不要重装、不要编译。按 [第 11 节](#11-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto` 和 `rackauto-agent`，重启控制面。只换其中一个，装机行为不会完整更新。
+
+**镜像要选系统和版本**  
+Debian 12 和 Ubuntu 24.04 写网卡的方式不同（ifupdown / netplan），Rocky 8 和 9 也不一样（ifcfg / NetworkManager）。登记或上传时选对系统和版本，装机才会写入对应配置。Bond 和 VLAN（含 Bond 上的 VLAN）在装机向导第 3 步添加。
 
 **`go build` 失败 / undefined: nfcSparseValues / 找不到 bin/rackauto**  
 生产环境请用 Release，不要编译。若一定要编：

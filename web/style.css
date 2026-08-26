@@ -424,6 +424,14 @@ pre.log {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
+.editor-grid .full { grid-column: 1 / -1; }
+.member-list {
+  display: flex; flex-wrap: wrap; gap: 8px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.member-list label { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
 .key-row { display: flex; gap: 8px; align-items: center; }
 .key-row input { flex: 1; }
 .chk-row {

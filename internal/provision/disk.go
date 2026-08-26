@@ -5,18 +5,23 @@ import (
 	"strings"
 
 	"github.com/Songxwn/Rack-auto/internal/model"
+	"github.com/Songxwn/Rack-auto/internal/osprofile"
 )
 
-func DefaultPartitions(firmware string) []model.Partition {
+func DefaultPartitions(firmware, family, version string) []model.Partition {
+	rootFS := osprofile.Lookup(family, version).RootFS
+	if rootFS == "" {
+		rootFS = "ext4"
+	}
 	if strings.EqualFold(firmware, model.FirmwareBIOS) {
 		return []model.Partition{
 			{Name: "biosboot", SizeMB: 1, FS: "biosboot", Mount: "", Flags: "bios_grub"},
-			{Name: "root", SizeMB: 0, FS: "ext4", Mount: "/", Flags: ""},
+			{Name: "root", SizeMB: 0, FS: rootFS, Mount: "/", Flags: ""},
 		}
 	}
 	return []model.Partition{
 		{Name: "efi", SizeMB: 512, FS: "vfat", Mount: "/boot/efi", Flags: "esp,boot"},
-		{Name: "root", SizeMB: 0, FS: "ext4", Mount: "/", Flags: ""},
+		{Name: "root", SizeMB: 0, FS: rootFS, Mount: "/", Flags: ""},
 	}
 }
 

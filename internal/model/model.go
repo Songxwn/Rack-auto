@@ -36,6 +36,10 @@ const (
 	ImageCloudDisk = "cloud-disk"
 	ImageCloudRoot = "cloud-root"
 	ImageRawDisk   = "raw-disk"
+
+	NICEthernet = "ethernet"
+	NICBond     = "bond"
+	NICVLAN     = "vlan"
 )
 
 type Machine struct {
@@ -102,6 +106,7 @@ type Image struct {
 	ID           string        `json:"id"`
 	Name         string        `json:"name"`
 	OSFamily     string        `json:"os_family"`
+	OSVersion    string        `json:"os_version,omitempty"`
 	Kind         string        `json:"kind"`
 	URL          string        `json:"url"`
 	Filename     string        `json:"filename"`
@@ -218,13 +223,31 @@ type NetConfig struct {
 }
 
 type NICConfig struct {
-	MAC     string   `json:"mac"`
-	Name    string   `json:"name"`
-	Method  string   `json:"method"`
-	Address string   `json:"address"`
-	Gateway string   `json:"gateway"`
-	DNS     []string `json:"dns"`
-	MTU     int      `json:"mtu"`
+	Kind        string   `json:"kind,omitempty"`
+	MAC         string   `json:"mac,omitempty"`
+	Name        string   `json:"name"`
+	Method      string   `json:"method"`
+	Address     string   `json:"address,omitempty"`
+	Gateway     string   `json:"gateway,omitempty"`
+	DNS         []string `json:"dns,omitempty"`
+	MTU         int      `json:"mtu,omitempty"`
+	BondMode    string   `json:"bond_mode,omitempty"`
+	BondMembers []string `json:"bond_members,omitempty"`
+	VLANID      int      `json:"vlan_id,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
+}
+
+func (n NICConfig) Type() string {
+	if n.Kind != "" {
+		return n.Kind
+	}
+	if n.VLANID > 0 || n.Parent != "" {
+		return NICVLAN
+	}
+	if len(n.BondMembers) > 0 || n.BondMode != "" {
+		return NICBond
+	}
+	return NICEthernet
 }
 
 type StressSpec struct {

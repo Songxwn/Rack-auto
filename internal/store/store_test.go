@@ -46,14 +46,15 @@ func TestImageInspectRoundtrip(t *testing.T) {
 	defer st.Close()
 	img := model.Image{
 		Name: "cloud", URL: "http://x/images/a.qcow2", Kind: model.ImageCloudDisk,
+		OSFamily: "debian", OSVersion: "12",
 		Inspect: &model.ImageInspect{Status: "ok", BootUEFI: true, BootBIOS: true, RootFS: "ext4", RootNum: 1},
 	}
 	if err := st.UpsertImage(&img); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.GetImage(img.ID)
-	if err != nil || got.Inspect == nil || !got.Inspect.BootUEFI || got.Inspect.RootFS != "ext4" {
-		t.Fatalf("get: %v %#v", err, got.Inspect)
+	if err != nil || got.Inspect == nil || !got.Inspect.BootUEFI || got.Inspect.RootFS != "ext4" || got.OSVersion != "12" {
+		t.Fatalf("get: %v %#v os=%s/%s", err, got.Inspect, got.OSFamily, got.OSVersion)
 	}
 	list, err := st.ListImages()
 	if err != nil || len(list) != 1 || list[0].Inspect == nil || !list[0].Inspect.BootBIOS {

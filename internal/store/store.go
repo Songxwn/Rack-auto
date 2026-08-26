@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS images (
   id TEXT PRIMARY KEY,
   name TEXT,
   os_family TEXT,
+  os_version TEXT,
   kind TEXT,
   url TEXT,
   filename TEXT,
@@ -108,7 +109,10 @@ CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 	if err != nil {
 		return err
 	}
-	return s.ensureColumn("images", "inspect", "TEXT")
+	if err := s.ensureColumn("images", "inspect", "TEXT"); err != nil {
+		return err
+	}
+	return s.ensureColumn("images", "os_version", "TEXT")
 }
 
 func (s *Store) ensureColumn(table, col, typ string) error {
@@ -330,11 +334,11 @@ func (s *Store) UpsertImage(img *model.Image) error {
 	if img.Inspect == nil {
 		inspect = []byte("")
 	}
-	_, err := s.db.Exec(`INSERT INTO images(id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET name=excluded.name, os_family=excluded.os_family, kind=excluded.kind, url=excluded.url,
+	_, err := s.db.Exec(`INSERT INTO images(id,name,os_family,os_version,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET name=excluded.name, os_family=excluded.os_family, os_version=excluded.os_version, kind=excluded.kind, url=excluded.url,
 		filename=excluded.filename, checksum=excluded.checksum, checksum_type=excluded.checksum_type, size_b=excluded.size_b, notes=excluded.notes, inspect=excluded.inspect`,
-		img.ID, img.Name, img.OSFamily, img.Kind, img.URL, img.Filename, img.Checksum, img.ChecksumType, img.SizeB, img.Notes, string(inspect), fmtTime(img.CreatedAt))
+		img.ID, img.Name, img.OSFamily, img.OSVersion, img.Kind, img.URL, img.Filename, img.Checksum, img.ChecksumType, img.SizeB, img.Notes, string(inspect), fmtTime(img.CreatedAt))
 	return err
 }
 
@@ -342,7 +346,7 @@ func scanImage(sc interface{ Scan(dest ...any) error }) (model.Image, error) {
 	var img model.Image
 	var created string
 	var inspect sql.NullString
-	err := sc.Scan(&img.ID, &img.Name, &img.OSFamily, &img.Kind, &img.URL, &img.Filename, &img.Checksum, &img.ChecksumType, &img.SizeB, &img.Notes, &inspect, &created)
+	err := sc.Scan(&img.ID, &img.Name, &img.OSFamily, &img.OSVersion, &img.Kind, &img.URL, &img.Filename, &img.Checksum, &img.ChecksumType, &img.SizeB, &img.Notes, &inspect, &created)
 	img.CreatedAt = parseTime(created)
 	if inspect.Valid && inspect.String != "" && inspect.String != "null" {
 		var in model.ImageInspect
@@ -356,7 +360,7 @@ func scanImage(sc interface{ Scan(dest ...any) error }) (model.Image, error) {
 func (s *Store) ListImages() ([]model.Image, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.Query(`SELECT id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at FROM images ORDER BY created_at DESC`)
+	rows, err := s.db.Query(`SELECT id,name,os_family,os_version,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at FROM images ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +379,7 @@ func (s *Store) ListImages() ([]model.Image, error) {
 func (s *Store) GetImage(id string) (model.Image, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	row := s.db.QueryRow(`SELECT id,name,os_family,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at FROM images WHERE id=?`, id)
+	row := s.db.QueryRow(`SELECT id,name,os_family,os_version,kind,url,filename,checksum,checksum_type,size_b,notes,inspect,created_at FROM images WHERE id=?`, id)
 	img, err := scanImage(row)
 	if err == sql.ErrNoRows {
 		return img, fmt.Errorf("image not found")

@@ -17,6 +17,7 @@ import (
 	"github.com/Songxwn/Rack-auto/internal/cryptpw"
 	"github.com/Songxwn/Rack-auto/internal/imageinspect"
 	"github.com/Songxwn/Rack-auto/internal/model"
+	"github.com/Songxwn/Rack-auto/internal/osprofile"
 	"github.com/Songxwn/Rack-auto/internal/provision"
 )
 
@@ -51,7 +52,7 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	}
 
 	kind := model.ImageCloudRoot
-	var imageURL, checksum, checksumType string
+	var imageURL, checksum, checksumType, family, version string
 	if job.Image != nil {
 		if job.Image.Kind != "" {
 			kind = job.Image.Kind
@@ -59,6 +60,8 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		imageURL = job.Image.URL
 		checksum = job.Image.Checksum
 		checksumType = job.Image.ChecksumType
+		family = job.Image.OSFamily
+		version = job.Image.OSVersion
 	}
 	whole := kind == model.ImageRawDisk || kind == model.ImageCloudDisk
 	if !whole {
@@ -67,7 +70,7 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 			if fw == "" {
 				fw = firmware()
 			}
-			spec.Partitions = provision.DefaultPartitions(fw)
+			spec.Partitions = provision.DefaultPartitions(fw, family, version)
 		}
 		if err := provision.Validate(spec.Partitions); err != nil {
 			return err
@@ -114,8 +117,12 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 			return err
 		}
 		log("root partition %s", rootDev)
+		progress(68, "expand root to full disk")
+		if err := growDisk(log, disk, rootDev, hint); err != nil {
+			log("warn: grow partition: %v", err)
+		}
 		progress(70, "inject system config")
-		if err := injectConfig(log, rootDev, disk, spec, true); err != nil {
+		if err := injectConfig(log, rootDev, disk, spec, job.Image, true); err != nil {
 			return err
 		}
 		progress(95, "config done")
@@ -162,9 +169,13 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		return err
 	}
 	_ = run(log, "e2fsck", "-fp", rootDev)
-	_ = run(log, "resize2fs", rootDev)
+	if probeDevFS(rootDev) == "xfs" {
+		log("xfs root; grow after mount")
+	} else {
+		_ = run(log, "resize2fs", rootDev)
+	}
 	progress(72, "inject system config")
-	if err := injectConfig(log, rootDev, disk, spec, false); err != nil {
+	if err := injectConfig(log, rootDev, disk, spec, job.Image, false); err != nil {
 		return err
 	}
 	progress(90, "install bootloader")
@@ -375,13 +386,20 @@ func blockSize(dev string) int64 {
 	return n * 512
 }
 
-func injectConfig(log func(string, ...any), rootDev, disk string, spec model.InstallSpec, keepLayout bool) error {
+func injectConfig(log func(string, ...any), rootDev, disk string, spec model.InstallSpec, img *model.Image, keepLayout bool) error {
 	mnt := "/mnt/target"
 	_ = os.MkdirAll(mnt, 0o755)
 	if err := run(log, "mount", rootDev, mnt); err != nil {
 		_ = run(log, "mount", "-o", "nouuid", rootDev, mnt)
 	}
 	defer func() { _ = exec.Command("umount", "-R", mnt).Run() }()
+
+	switch probeDevFS(rootDev) {
+	case "xfs":
+		_ = run(log, "xfs_growfs", "-d", mnt)
+	case "btrfs":
+		_ = run(log, "btrfs", "filesystem", "resize", "max", mnt)
+	}
 
 	if !keepLayout {
 		for i, p := range spec.Partitions {
@@ -418,12 +436,14 @@ func injectConfig(log func(string, ...any), rootDev, disk string, spec model.Ins
 	_ = os.MkdirAll(filepath.Join(mnt, "etc/cloud/cloud.cfg.d"), 0o755)
 	_ = os.WriteFile(filepath.Join(mnt, "etc/cloud/cloud.cfg.d/99-rackauto.cfg"), []byte("datasource_list: [NoCloud]\n"), 0644)
 
-	netplan := provision.Netplan(spec.Network)
-	_ = os.MkdirAll(filepath.Join(mnt, "etc/netplan"), 0o755)
-	_ = os.WriteFile(filepath.Join(mnt, "etc/netplan/99-rackauto.yaml"), []byte(netplan), 0644)
-	_ = os.MkdirAll(filepath.Join(mnt, "etc/network"), 0o755)
-	_ = os.WriteFile(filepath.Join(mnt, "etc/network/interfaces"), []byte(provision.Ifupdown(spec.Network)), 0644)
-	_ = os.WriteFile(filepath.Join(mnt, "etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"), []byte("network: {config: disabled}\n"), 0644)
+	backend := osprofile.Netplan
+	if img != nil {
+		backend = osprofile.Lookup(img.OSFamily, img.OSVersion).NetBackend
+	}
+	if err := provision.ApplyNetwork(mnt, spec.Network, backend); err != nil {
+		return err
+	}
+	log("network backend %s", backend)
 
 	user := spec.Username
 	if user == "" {

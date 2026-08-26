@@ -20,6 +20,7 @@ import (
 	"github.com/Songxwn/Rack-auto/internal/imageinspect"
 	"github.com/Songxwn/Rack-auto/internal/model"
 	"github.com/Songxwn/Rack-auto/internal/netboot"
+	"github.com/Songxwn/Rack-auto/internal/osprofile"
 	"github.com/Songxwn/Rack-auto/internal/provision"
 	"github.com/Songxwn/Rack-auto/internal/store"
 	"github.com/Songxwn/Rack-auto/web"
@@ -57,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/machines/{id}/boot", s.auth(s.setBoot))
 	mux.HandleFunc("POST /api/v1/machines/{id}/pxe-install", s.auth(s.pxeInstall))
 
+	mux.HandleFunc("GET /api/v1/os-catalog", s.auth(s.osCatalog))
 	mux.HandleFunc("GET /api/v1/images", s.auth(s.listImages))
 	mux.HandleFunc("POST /api/v1/images", s.auth(s.createImage))
 	mux.HandleFunc("POST /api/v1/images/upload", s.auth(s.uploadImage))
@@ -468,6 +470,10 @@ func (s *Server) pxeInstall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) osCatalog(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, osprofile.Catalog())
+}
+
 func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Store.ListImages()
 	if err != nil {
@@ -496,6 +502,10 @@ func (s *Server) createImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if img.Kind == "" {
 		img.Kind = model.ImageCloudDisk
+	}
+	img.OSFamily = osprofile.CanonicalFamily(img.OSFamily)
+	if img.OSVersion == "" {
+		img.OSVersion = osprofile.Lookup(img.OSFamily, "").ID
 	}
 	s.fillImageInspect(&img)
 	if err := s.Store.UpsertImage(&img); err != nil {
@@ -537,14 +547,19 @@ func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 	img := model.Image{
 		Name:     name,
-		OSFamily: r.FormValue("os_family"),
-		Kind:     r.FormValue("kind"),
+		OSFamily:  r.FormValue("os_family"),
+		OSVersion: r.FormValue("os_version"),
+		Kind:      r.FormValue("kind"),
 		URL:      s.Store.Setting("public_url", s.Cfg.PublicURL) + "/images/" + dstName,
 		Filename: dstName,
 		SizeB:    n,
 	}
 	if img.Kind == "" {
 		img.Kind = model.ImageCloudDisk
+	}
+	img.OSFamily = osprofile.CanonicalFamily(img.OSFamily)
+	if img.OSVersion == "" {
+		img.OSVersion = osprofile.Lookup(img.OSFamily, "").ID
 	}
 	s.fillImageInspect(&img)
 	if err := s.Store.UpsertImage(&img); err != nil {
@@ -707,7 +722,7 @@ func (s *Server) createInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if len(spec.Partitions) == 0 {
-			spec.Partitions = provision.DefaultPartitions(fw)
+			spec.Partitions = provision.DefaultPartitions(fw, img.OSFamily, img.OSVersion)
 		}
 		if err := provision.Validate(spec.Partitions); err != nil {
 			http.Error(w, err.Error(), 400)

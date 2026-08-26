@@ -2,77 +2,267 @@ package provision
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Songxwn/Rack-auto/internal/model"
+	"github.com/Songxwn/Rack-auto/internal/osprofile"
 )
 
+func ApplyNetwork(root string, cfg model.NetConfig, backend string) error {
+	_ = os.MkdirAll(filepath.Join(root, "etc/cloud/cloud.cfg.d"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "etc/cloud/cloud.cfg.d/99-disable-network-config.cfg"), []byte("network: {config: disabled}\n"), 0644)
+	switch backend {
+	case osprofile.Ifupdown:
+		_ = os.MkdirAll(filepath.Join(root, "etc/network"), 0o755)
+		if err := os.WriteFile(filepath.Join(root, "etc/network/interfaces"), []byte(Ifupdown(cfg)), 0644); err != nil {
+			return err
+		}
+		_ = os.Remove(filepath.Join(root, "etc/netplan/99-rackauto.yaml"))
+	case osprofile.NM:
+		_ = os.Remove(filepath.Join(root, "etc/netplan/99-rackauto.yaml"))
+		return writeNM(root, cfg)
+	case osprofile.Ifcfg:
+		_ = os.Remove(filepath.Join(root, "etc/netplan/99-rackauto.yaml"))
+		return writeIfcfg(root, cfg)
+	default:
+		_ = os.MkdirAll(filepath.Join(root, "etc/netplan"), 0o755)
+		if err := os.WriteFile(filepath.Join(root, "etc/netplan/99-rackauto.yaml"), []byte(Netplan(cfg)), 0600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Netplan(cfg model.NetConfig) string {
+	eths, bonds, vlans := classifyNICs(cfg)
 	var b strings.Builder
-	b.WriteString("network:\n  version: 2\n  ethernets:\n")
-	if len(cfg.NICs) == 0 {
-		b.WriteString("    id0:\n      match:\n        name: \"e*\"\n      dhcp4: true\n")
+	b.WriteString("network:\n  version: 2\n  renderer: networkd\n")
+	if len(eths) == 0 && len(bonds) == 0 && len(vlans) == 0 {
+		b.WriteString("  ethernets:\n    id0:\n      match:\n        name: \"e*\"\n      dhcp4: true\n")
 		return b.String()
 	}
-	for i, n := range cfg.NICs {
-		name := n.Name
-		if name == "" {
-			name = fmt.Sprintf("nic%d", i)
+	if len(eths) > 0 {
+		b.WriteString("  ethernets:\n")
+		for i, n := range eths {
+			writeNetplanIface(&b, n, i, "    ")
 		}
-		fmt.Fprintf(&b, "    %s:\n", name)
-		if n.MAC != "" {
-			fmt.Fprintf(&b, "      match:\n        macaddress: \"%s\"\n      set-name: %s\n", strings.ToLower(n.MAC), name)
-		}
-		if n.MTU > 0 {
-			fmt.Fprintf(&b, "      mtu: %d\n", n.MTU)
-		}
-		if strings.EqualFold(n.Method, "static") && n.Address != "" {
-			b.WriteString("      dhcp4: false\n")
-			fmt.Fprintf(&b, "      addresses: [%s]\n", n.Address)
-			if n.Gateway != "" {
-				fmt.Fprintf(&b, "      routes:\n        - to: default\n          via: %s\n", n.Gateway)
+	}
+	if len(bonds) > 0 {
+		b.WriteString("  bonds:\n")
+		for i, n := range bonds {
+			writeNetplanIface(&b, n, i, "    ")
+			mode := n.BondMode
+			if mode == "" {
+				mode = "802.3ad"
 			}
-			if len(n.DNS) > 0 {
-				fmt.Fprintf(&b, "      nameservers:\n        addresses: [%s]\n", strings.Join(n.DNS, ", "))
+			b.WriteString("      parameters:\n")
+			fmt.Fprintf(&b, "        mode: %s\n", mode)
+			b.WriteString("        mii-monitor-interval: 100\n")
+			if mode == "802.3ad" {
+				b.WriteString("        lacp-rate: fast\n")
 			}
-		} else {
-			b.WriteString("      dhcp4: true\n")
+			if len(n.BondMembers) > 0 {
+				fmt.Fprintf(&b, "      interfaces: [%s]\n", strings.Join(n.BondMembers, ", "))
+			}
+		}
+	}
+	if len(vlans) > 0 {
+		b.WriteString("  vlans:\n")
+		for i, n := range vlans {
+			writeNetplanIface(&b, n, i, "    ")
+			id := n.VLANID
+			if id <= 0 {
+				id = 1
+			}
+			fmt.Fprintf(&b, "      id: %d\n", id)
+			parent := n.Parent
+			if parent == "" {
+				parent = "eth0"
+			}
+			fmt.Fprintf(&b, "      link: %s\n", parent)
 		}
 	}
 	return b.String()
 }
 
+func writeNetplanIface(b *strings.Builder, n model.NICConfig, i int, pad string) {
+	name := ifaceName(n, i)
+	fmt.Fprintf(b, "%s%s:\n", pad, name)
+	if n.Type() == model.NICEthernet && n.MAC != "" {
+		fmt.Fprintf(b, "%s  match:\n%s    macaddress: \"%s\"\n%s  set-name: %s\n", pad, pad, strings.ToLower(n.MAC), pad, name)
+	}
+	if n.MTU > 0 {
+		fmt.Fprintf(b, "%s  mtu: %d\n", pad, n.MTU)
+	}
+	switch {
+	case isNone(n):
+		b.WriteString(pad + "  dhcp4: false\n")
+	case isStatic(n):
+		b.WriteString(pad + "  dhcp4: false\n")
+		fmt.Fprintf(b, "%s  addresses: [%s]\n", pad, n.Address)
+		if n.Gateway != "" {
+			fmt.Fprintf(b, "%s  routes:\n%s    - to: default\n%s      via: %s\n", pad, pad, pad, n.Gateway)
+		}
+		if len(n.DNS) > 0 {
+			fmt.Fprintf(b, "%s  nameservers:\n%s    addresses: [%s]\n", pad, pad, strings.Join(n.DNS, ", "))
+		}
+	default:
+		b.WriteString(pad + "  dhcp4: true\n")
+	}
+}
+
 func Ifupdown(cfg model.NetConfig) string {
+	eths, bonds, vlans := classifyNICs(cfg)
 	var b strings.Builder
 	b.WriteString("auto lo\niface lo inet loopback\n\n")
-	if len(cfg.NICs) == 0 {
+	if len(eths) == 0 && len(bonds) == 0 && len(vlans) == 0 {
 		b.WriteString("auto eth0\niface eth0 inet dhcp\n")
 		return b.String()
 	}
-	for i, n := range cfg.NICs {
-		name := n.Name
-		if name == "" {
-			name = fmt.Sprintf("eth%d", i)
+	bondOf := map[string]string{}
+	for _, n := range bonds {
+		bn := ifaceName(n, 0)
+		for _, m := range n.BondMembers {
+			bondOf[m] = bn
 		}
-		fmt.Fprintf(&b, "auto %s\n", name)
-		if strings.EqualFold(n.Method, "static") && n.Address != "" {
-			addr, mask := splitCIDR(n.Address)
-			fmt.Fprintf(&b, "iface %s inet static\n  address %s\n  netmask %s\n", name, addr, mask)
-			if n.Gateway != "" {
-				fmt.Fprintf(&b, "  gateway %s\n", n.Gateway)
-			}
-			if len(n.DNS) > 0 {
-				fmt.Fprintf(&b, "  dns-nameservers %s\n", strings.Join(n.DNS, " "))
-			}
-		} else {
-			fmt.Fprintf(&b, "iface %s inet dhcp\n", name)
-		}
-		if n.MTU > 0 {
-			fmt.Fprintf(&b, "  mtu %d\n", n.MTU)
-		}
-		b.WriteString("\n")
+	}
+	for i, n := range eths {
+		writeIfupdownIface(&b, n, i, bondOf[ifaceName(n, i)])
+	}
+	for i, n := range bonds {
+		writeIfupdownIface(&b, n, i, "")
+	}
+	for i, n := range vlans {
+		writeIfupdownIface(&b, n, i, "")
 	}
 	return b.String()
+}
+
+func writeIfupdownIface(b *strings.Builder, n model.NICConfig, i int, bondMaster string) {
+	name := ifaceName(n, i)
+	fmt.Fprintf(b, "auto %s\n", name)
+	switch {
+	case isNone(n) || bondMaster != "":
+		fmt.Fprintf(b, "iface %s inet manual\n", name)
+	case isStatic(n):
+		addr, mask := splitCIDR(n.Address)
+		fmt.Fprintf(b, "iface %s inet static\n  address %s\n  netmask %s\n", name, addr, mask)
+		if n.Gateway != "" {
+			fmt.Fprintf(b, "  gateway %s\n", n.Gateway)
+		}
+		if len(n.DNS) > 0 {
+			fmt.Fprintf(b, "  dns-nameservers %s\n", strings.Join(n.DNS, " "))
+		}
+	default:
+		fmt.Fprintf(b, "iface %s inet dhcp\n", name)
+	}
+	if n.MTU > 0 {
+		fmt.Fprintf(b, "  mtu %d\n", n.MTU)
+	}
+	if bondMaster != "" {
+		fmt.Fprintf(b, "  bond-master %s\n", bondMaster)
+	}
+	if n.Type() == model.NICBond {
+		mode := n.BondMode
+		if mode == "" {
+			mode = "802.3ad"
+		}
+		b.WriteString("  bond-slaves none\n")
+		fmt.Fprintf(b, "  bond-mode %s\n  bond-miimon 100\n", mode)
+		if mode == "802.3ad" {
+			b.WriteString("  bond-lacp-rate 1\n")
+		}
+	}
+	if n.Type() == model.NICVLAN {
+		parent := n.Parent
+		if parent == "" {
+			parent = "eth0"
+		}
+		fmt.Fprintf(b, "  vlan-raw-device %s\n", parent)
+	}
+	b.WriteString("\n")
+}
+
+func classifyNICs(cfg model.NetConfig) (eths, bonds, vlans []model.NICConfig) {
+	members := map[string]bool{}
+	for _, n := range cfg.NICs {
+		if n.Type() == model.NICBond {
+			for _, m := range n.BondMembers {
+				members[m] = true
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, n := range cfg.NICs {
+		switch n.Type() {
+		case model.NICBond:
+			if n.Name == "" {
+				n.Name = "bond0"
+			}
+			bonds = append(bonds, n)
+		case model.NICVLAN:
+			if n.Name == "" {
+				parent := n.Parent
+				if parent == "" {
+					parent = "eth0"
+				}
+				n.Name = fmt.Sprintf("%s.%d", parent, n.VLANID)
+			}
+			vlans = append(vlans, n)
+		default:
+			if members[n.Name] {
+				n.Method = "none"
+			}
+			eths = append(eths, n)
+			if n.Name != "" {
+				seen[n.Name] = true
+			}
+		}
+	}
+	for _, n := range bonds {
+		for _, m := range n.BondMembers {
+			if seen[m] || m == "" {
+				continue
+			}
+			eths = append(eths, model.NICConfig{Kind: model.NICEthernet, Name: m, Method: "none"})
+			seen[m] = true
+		}
+	}
+	return
+}
+
+func ifaceName(n model.NICConfig, i int) string {
+	if n.Name != "" {
+		return n.Name
+	}
+	switch n.Type() {
+	case model.NICBond:
+		return "bond0"
+	case model.NICVLAN:
+		parent := n.Parent
+		if parent == "" {
+			parent = "eth0"
+		}
+		id := n.VLANID
+		if id <= 0 {
+			id = i + 1
+		}
+		return fmt.Sprintf("%s.%d", parent, id)
+	default:
+		return fmt.Sprintf("nic%d", i)
+	}
+}
+
+func isStatic(n model.NICConfig) bool {
+	return strings.EqualFold(n.Method, "static") && n.Address != ""
+}
+
+func isNone(n model.NICConfig) bool {
+	m := strings.ToLower(n.Method)
+	return m == "none" || m == "manual"
 }
 
 func splitCIDR(cidr string) (string, string) {
@@ -89,6 +279,17 @@ func splitCIDR(cidr string) (string, string) {
 		return parts[0], m
 	}
 	return parts[0], "255.255.255.0"
+}
+
+func prefixOf(addr string) string {
+	_, rest, ok := strings.Cut(addr, "/")
+	if !ok || rest == "" {
+		return "24"
+	}
+	if _, err := strconv.Atoi(rest); err != nil {
+		return "24"
+	}
+	return rest
 }
 
 func CloudInit(spec model.InstallSpec, hashed string) (userData, metaData string) {
@@ -126,6 +327,8 @@ func CloudInit(spec model.InstallSpec, hashed string) (userData, metaData string
 	}
 	b.WriteString("chpasswd:\n  expire: false\n")
 	b.WriteString("package_update: false\n")
+	b.WriteString("growpart:\n  mode: auto\n  devices: ['/']\nresize_rootfs: true\n")
+	b.WriteString("runcmd:\n  - [modprobe, 8021q]\n  - [modprobe, bonding]\n")
 	userData = b.String()
 	metaData = fmt.Sprintf("instance-id: rackauto-%s\nlocal-hostname: %s\n", host, host)
 	return

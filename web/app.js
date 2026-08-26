@@ -12,7 +12,7 @@ const kickers = {
   boot: "NETBOOT / DHCP",
 };
 let current = "dash";
-let cache = { machines: [], images: [], jobs: [], events: [], overview: {} };
+let cache = { machines: [], images: [], jobs: [], events: [], overview: {}, catalog: [] };
 
 function token() { return $("#token").value.trim() || localStorage.getItem("rackauto_token") || ""; }
 $("#token").value = localStorage.getItem("rackauto_token") || "";
@@ -60,11 +60,12 @@ $("#refresh").addEventListener("click", () => load().then(render));
 
 async function load() {
   try {
-    const [overview, machines, images, jobs, events, health] = await Promise.all([
+    const [overview, machines, images, jobs, events, health, catalog] = await Promise.all([
       api("/overview"), api("/machines"), api("/images"), api("/jobs"), api("/events"),
       fetch("/api/v1/health").then(r => r.json()).catch(() => ({ ok: false })),
+      api("/os-catalog").catch(() => OS_CATALOG),
     ]);
-    cache = { overview, machines, images, jobs, events };
+    cache = { overview, machines, images, jobs, events, catalog: catalog || OS_CATALOG };
     setHealth(health.ok, health.ok ? "CTRL // ONLINE" : "CTRL // OFFLINE");
     if (health.version) setVersion(health.version);
   } catch (e) {
@@ -260,8 +261,8 @@ function renderImages() {
       <div class="panel">
         <h3>登记镜像 URL</h3>
         <label>名称</label><input id="i-name" placeholder="Ubuntu 24.04 cloud">
-        <div class="row">
-          <div><label>系统</label><select id="i-os"><option>ubuntu</option><option>debian</option><option>rocky</option><option>centos</option><option>custom</option></select></div>
+        <div class="row3">
+          ${osSelectHTML("ubuntu", "24.04")}
           <div><label>类型</label><select id="i-kind">
             <option value="cloud-disk">云镜像（整盘 qcow2/raw）</option>
             <option value="cloud-root">根文件系统镜像</option>
@@ -281,7 +282,7 @@ function renderImages() {
     <div class="panel" style="margin-top:14px">
       <table><thead><tr><th>名称</th><th>类型</th><th>大小</th><th>引导</th><th>URL</th><th></th></tr></thead>
       <tbody>${(cache.images||[]).length ? (cache.images||[]).map(i => `<tr>
-        <td>${escapeHtml(i.name)}<div class="hint">${escapeHtml(i.os_family||"")}</div></td>
+        <td>${escapeHtml(i.name)}<div class="hint">${escapeHtml(osLabel(i))}</div></td>
         <td>${escapeHtml(i.kind)}</td><td>${fmtBytes(i.size_b || (i.inspect && i.inspect.virtual_size_b) || 0)}</td>
         <td>${inspectBadge(i)}<div class="hint">${escapeHtml((i.inspect && i.inspect.message) || "")}</div></td>
         <td class="mono hint">${escapeHtml(i.url)}</td>
@@ -294,7 +295,7 @@ function renderImages() {
   $("#i-add").onclick = async () => {
     try {
       await api("/images", { method: "POST", body: JSON.stringify({
-        name: $("#i-name").value, os_family: $("#i-os").value, kind: $("#i-kind").value,
+        name: $("#i-name").value, os_family: $("#i-os").value, os_version: $("#i-osver").value, kind: $("#i-kind").value,
         url: $("#i-url").value, checksum: $("#i-sum").value, checksum_type: "sha256",
       })});
       await load(); render();
@@ -308,6 +309,7 @@ function renderImages() {
     fd.append("name", f.name);
     fd.append("kind", $("#i-kind").value);
     fd.append("os_family", $("#i-os").value);
+    fd.append("os_version", $("#i-osver").value);
     try {
       const headers = {};
       const t = token(); if (t) headers["X-API-Token"] = t;
@@ -331,9 +333,59 @@ function renderImages() {
     await api("/images/" + id, { method: "DELETE" });
     await load(); render();
   };
+  wireOsSelects();
 }
 
-const USER_PRESETS = ["ubuntu", "debian", "rocky", "centos", "root"];
+function wireOsSelects() {
+  const os = $("#i-os");
+  if (!os) return;
+  os.onchange = () => {
+    const d = osDistro(os.value);
+    const ver = $("#i-osver");
+    if (!ver || !d) return;
+    ver.innerHTML = (d.versions || []).map(v => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label)}</option>`).join("");
+    if (d.versions && d.versions.length) ver.value = d.versions[d.versions.length - 1].id;
+  };
+}
+
+const OS_CATALOG = [
+  { family: "ubuntu", label: "Ubuntu", versions: [
+    { id: "20.04", label: "20.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
+    { id: "22.04", label: "22.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
+    { id: "24.04", label: "24.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
+    { id: "26.04", label: "26.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
+  ]},
+  { family: "debian", label: "Debian", versions: [
+    { id: "11", label: "11 (bullseye)", default_user: "debian", root_fs: "ext4", net_backend: "ifupdown" },
+    { id: "12", label: "12 (bookworm)", default_user: "debian", root_fs: "ext4", net_backend: "ifupdown" },
+    { id: "13", label: "13 (trixie)", default_user: "debian", root_fs: "ext4", net_backend: "netplan" },
+  ]},
+  { family: "rocky", label: "Rocky Linux", versions: [
+    { id: "8", label: "8", default_user: "rocky", root_fs: "xfs", net_backend: "ifcfg" },
+    { id: "9", label: "9", default_user: "rocky", root_fs: "xfs", net_backend: "nm" },
+    { id: "10", label: "10", default_user: "rocky", root_fs: "xfs", net_backend: "nm" },
+  ]},
+  { family: "alma", label: "AlmaLinux", versions: [
+    { id: "8", label: "8", default_user: "almalinux", root_fs: "xfs", net_backend: "ifcfg" },
+    { id: "9", label: "9", default_user: "almalinux", root_fs: "xfs", net_backend: "nm" },
+  ]},
+  { family: "centos", label: "CentOS", versions: [
+    { id: "7", label: "7", default_user: "centos", root_fs: "ext4", net_backend: "ifcfg" },
+    { id: "9", label: "Stream 9", default_user: "centos", root_fs: "xfs", net_backend: "nm" },
+  ]},
+  { family: "custom", label: "自定义", versions: [
+    { id: "generic", label: "generic", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
+  ]},
+];
+const BOND_MODES = [
+  ["802.3ad", "802.3ad (LACP)"],
+  ["active-backup", "主备 active-backup"],
+  ["balance-tlb", "balance-tlb"],
+  ["balance-alb", "balance-alb"],
+  ["balance-xor", "balance-xor"],
+  ["balance-rr", "balance-rr"],
+];
+const USER_PRESETS = ["ubuntu", "debian", "rocky", "almalinux", "centos", "root"];
 const TIMEZONES = [
   "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore", "Asia/Tokyo", "Asia/Seoul",
   "UTC", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles",
@@ -347,26 +399,59 @@ const PREFIX_OPTS = ["8", "16", "24", "25", "26", "27", "28"];
 
 let installDraft = null;
 
-function defaultParts(fw) {
+function osCatalog() {
+  return (cache.catalog && cache.catalog.length) ? cache.catalog : OS_CATALOG;
+}
+function osDistro(family) {
+  return osCatalog().find(d => d.family === family) || osCatalog()[0];
+}
+function osVersion(family, id) {
+  const d = osDistro(family);
+  if (!d) return null;
+  return (d.versions || []).find(v => v.id === id) || d.versions[d.versions.length - 1];
+}
+function osLabel(img) {
+  if (!img) return "";
+  const d = osCatalog().find(x => x.family === img.os_family);
+  const v = osVersion(img.os_family, img.os_version);
+  if (!d) return [img.os_family, img.os_version].filter(Boolean).join(" ");
+  if (v && v.id && v.id !== "generic") return d.label + " " + v.label;
+  return d.label;
+}
+function osSelectHTML(family, version) {
+  const cats = osCatalog();
+  const fam = family || "ubuntu";
+  const d = osDistro(fam);
+  const ver = version || (d && d.versions[d.versions.length - 1].id) || "";
+  return `<div><label>系统</label>
+    <select id="i-os">${cats.map(x => `<option value="${escapeHtml(x.family)}" ${x.family === fam ? "selected" : ""}>${escapeHtml(x.label)}</option>`).join("")}</select>
+  </div>
+  <div><label>版本</label>
+    <select id="i-osver">${(d.versions || []).map(v => `<option value="${escapeHtml(v.id)}" ${v.id === ver ? "selected" : ""}>${escapeHtml(v.label)}</option>`).join("")}</select>
+  </div>`;
+}
+
+function defaultParts(fw, family, version) {
+  const root = (osVersion(family, version) || {}).root_fs || "ext4";
   if (fw === "bios") return [
     { name: "biosboot", size_mb: 1, fs: "biosboot", mount: "", flags: "bios_grub" },
-    { name: "root", size_mb: 0, fs: "ext4", mount: "/", flags: "" },
+    { name: "root", size_mb: 0, fs: root, mount: "/", flags: "" },
   ];
   return [
     { name: "efi", size_mb: 512, fs: "vfat", mount: "/boot/efi", flags: "esp,boot" },
-    { name: "root", size_mb: 0, fs: "ext4", mount: "/", flags: "" },
+    { name: "root", size_mb: 0, fs: root, mount: "/", flags: "" },
   ];
 }
 
 function blankNic() {
-  return { name: "", mac: "", method: "dhcp", ip: "", prefix: "24", gateway: "", dns1: "8.8.8.8", dns2: "" };
+  return { kind: "ethernet", name: "", mac: "", method: "dhcp", ip: "", prefix: "24", gateway: "", dns1: "8.8.8.8", dns2: "", bond_mode: "802.3ad", bond_members: [], vlan_id: "", parent: "" };
 }
 
 function blankInstallDraft() {
   return {
     step: 1, machine_id: "", image_id: "", hostname: "", username: "ubuntu",
     password: "", timezone: "Asia/Shanghai", firmware: "uefi", disk: "", reboot: true,
-    ssh_keys: [""], partitions: defaultParts("uefi"), nics: [blankNic()],
+    ssh_keys: [""], partitions: defaultParts("uefi", "ubuntu", "24.04"), nics: [blankNic()],
   };
 }
 
@@ -420,7 +505,9 @@ function imageHint(img, firmware) {
   if (!img) return "先在镜像页登记或上传";
   const whole = isWholeDiskImage(img);
   const inx = img.inspect;
-  const base = whole ? "整盘云镜像，写入后保留镜像内分区" : "根文件系统镜像，需要在第 3 步指定分区";
+  const base = whole
+    ? "整盘云镜像，写入后保留镜像内分区，并自动把根分区扩到整盘"
+    : "根文件系统镜像，需要在第 3 步指定分区（剩余空间会占满磁盘）";
   if (!inx || inx.status === "skipped") {
     return base + "。未检测引导，建议先在镜像页点「检测」。";
   }
@@ -435,7 +522,7 @@ function applyMachineDefaults() {
   if (!m) return;
   if (m.firmware && m.firmware !== installDraft.firmware) {
     installDraft.firmware = m.firmware;
-    installDraft.partitions = defaultParts(m.firmware);
+    installDraft.partitions = defaultParts(m.firmware, (selectedImage() || {}).os_family, (selectedImage() || {}).os_version);
   }
   if (!installDraft.hostname) installDraft.hostname = m.name || "";
   const nics = machineNics(m);
@@ -485,14 +572,19 @@ function collectInstallForm() {
   const nicRows = $$(".nic-row");
   if (nicRows.length) {
     installDraft.nics = nicRows.map(row => ({
-      name: $(".n-name", row).value,
+      kind: $(".n-kind", row)?.value || "ethernet",
+      name: $(".n-name", row)?.value || "",
       mac: $(".n-mac", row)?.value || "",
-      method: $(".n-method", row).value,
+      method: $(".n-method", row)?.value || "dhcp",
       ip: $(".n-ip", row)?.value.trim() || "",
       prefix: $(".n-prefix", row)?.value || "24",
       gateway: $(".n-gw", row)?.value.trim() || "",
       dns1: $(".n-dns1", row)?.value.trim() || "",
       dns2: $(".n-dns2", row)?.value.trim() || "",
+      bond_mode: $(".n-bond-mode", row)?.value || "802.3ad",
+      bond_members: $$(".n-member:checked", row).map(el => el.value),
+      vlan_id: $(".n-vlan", row)?.value || "",
+      parent: $(".n-parent", row)?.value || "",
     }));
   }
 }
@@ -532,28 +624,26 @@ function renderPartRow(p, i) {
   </div>`;
 }
 
-function renderNicRow(n, i, invNics) {
+function renderNicRow(n, i, invNics, allNics) {
+  const kind = n.kind || "ethernet";
   const staticOn = n.method === "static";
   const nicOpts = invNics.map(x => {
     const lab = `${x.name} · ${x.mac || ""} ${x.up ? "· UP" : ""}`.trim();
     return `<option value="${escapeHtml(x.name)}" ${x.name === n.name ? "selected" : ""}>${escapeHtml(lab)}</option>`;
   }).join("");
-  return `<div class="editor-item nic-row">
-    <div class="editor-grid">
-      <div><label>网卡</label>
-        <select class="n-name">
-          ${invNics.length ? nicOpts : `<option value="${escapeHtml(n.name || "eth0")}">${escapeHtml(n.name || "eth0")}</option>`}
-        </select>
-        <input type="hidden" class="n-mac" value="${escapeHtml(n.mac || (invNics.find(x => x.name === n.name) || {}).mac || "")}">
-      </div>
-      <div><label>地址获取</label>
-        <select class="n-method">
-          <option value="dhcp" ${n.method !== "static" ? "selected" : ""}>DHCP（自动）</option>
+  const parents = [];
+  invNics.forEach(x => { if (x.name && !parents.includes(x.name)) parents.push(x.name); });
+  (allNics || []).forEach(x => {
+    if ((x.kind === "bond" || x.kind === "ethernet") && x.name && !parents.includes(x.name)) parents.push(x.name);
+  });
+  const parentOpts = parents.map(p => `<option value="${escapeHtml(p)}" ${p === n.parent ? "selected" : ""}>${escapeHtml(p)}</option>`).join("");
+  const members = n.bond_members || [];
+  const methodSel = `<select class="n-method">
+          <option value="dhcp" ${n.method === "dhcp" || !n.method ? "selected" : ""}>DHCP（自动）</option>
           <option value="static" ${staticOn ? "selected" : ""}>静态地址</option>
-        </select>
-      </div>
-    </div>
-    <div class="static-fields ${staticOn ? "" : "hidden"}">
+          <option value="none" ${n.method === "none" ? "selected" : ""}>不配置地址（给 VLAN/Bond 用）</option>
+        </select>`;
+  const staticBox = `<div class="static-fields ${staticOn ? "" : "hidden"}">
       <div class="editor-grid">
         <div><label>IP 地址</label><input class="n-ip" value="${escapeHtml(n.ip || "")}" placeholder="10.0.0.20" inputmode="decimal"></div>
         <div><label>前缀长度</label><select class="n-prefix">${opts(PREFIX_OPTS, n.prefix || "24", v => "/" + v)}</select></div>
@@ -561,24 +651,87 @@ function renderNicRow(n, i, invNics) {
         <div><label>主 DNS</label><input class="n-dns1" value="${escapeHtml(n.dns1 || "")}" placeholder="8.8.8.8"></div>
         <div><label>备 DNS</label><input class="n-dns2" value="${escapeHtml(n.dns2 || "")}" placeholder="1.1.1.1"></div>
       </div>
+    </div>`;
+  let body = "";
+  if (kind === "bond") {
+    body = `<div class="editor-grid">
+      <div><label>Bond 名称</label><input class="n-name" value="${escapeHtml(n.name || "bond0")}" placeholder="bond0"></div>
+      <div><label>模式</label><select class="n-bond-mode">${opts(BOND_MODES, n.bond_mode || "802.3ad")}</select></div>
+      <div><label>地址获取</label>${methodSel}</div>
     </div>
-    <div class="chk-row"><button type="button" class="ghost danger-lite" data-del-nic="${i}">删除此网卡</button></div>
+    <div class="full" style="margin-top:8px"><label>成员网卡</label>
+      <div class="member-list">${invNics.length ? invNics.map(x => `<label><input type="checkbox" class="n-member" value="${escapeHtml(x.name)}" ${members.includes(x.name) ? "checked" : ""}> ${escapeHtml(x.name)}</label>`).join("") : `<span class="hint">机器尚未上报网卡</span>`}</div>
+    </div>
+    ${staticBox}`;
+  } else if (kind === "vlan") {
+    body = `<div class="editor-grid">
+      <div><label>父接口</label><select class="n-parent">${parentOpts || `<option value="${escapeHtml(n.parent || "eth0")}">${escapeHtml(n.parent || "eth0")}</option>`}</select></div>
+      <div><label>VLAN ID</label><input class="n-vlan" type="number" min="1" max="4094" value="${escapeHtml(String(n.vlan_id || ""))}" placeholder="100"></div>
+      <div><label>接口名</label><input class="n-name" value="${escapeHtml(n.name || "")}" placeholder="自动 parent.ID"></div>
+      <div><label>地址获取</label>${methodSel}</div>
+    </div>
+    ${staticBox}`;
+  } else {
+    body = `<div class="editor-grid">
+      <div><label>网卡</label>
+        <select class="n-name">
+          ${invNics.length ? nicOpts : `<option value="${escapeHtml(n.name || "eth0")}">${escapeHtml(n.name || "eth0")}</option>`}
+        </select>
+        <input type="hidden" class="n-mac" value="${escapeHtml(n.mac || (invNics.find(x => x.name === n.name) || {}).mac || "")}">
+      </div>
+      <div><label>地址获取</label>${methodSel}</div>
+    </div>
+    ${staticBox}`;
+  }
+  return `<div class="editor-item nic-row">
+    <div class="editor-grid">
+      <div><label>类型</label>
+        <select class="n-kind">
+          <option value="ethernet" ${kind === "ethernet" ? "selected" : ""}>物理网卡</option>
+          <option value="bond" ${kind === "bond" ? "selected" : ""}>Bond</option>
+          <option value="vlan" ${kind === "vlan" ? "selected" : ""}>VLAN</option>
+        </select>
+      </div>
+    </div>
+    ${body}
+    <div class="chk-row"><button type="button" class="ghost danger-lite" data-del-nic="${i}">删除</button></div>
   </div>`;
 }
 
 function buildInstallBody() {
   collectInstallForm();
   const d = installDraft;
-  const nics = d.nics.filter(n => n.name || n.method === "static").map(n => {
+  const nics = d.nics.filter(n => n.name || n.kind === "vlan" || n.kind === "bond" || n.method === "static").map(n => {
     const dns = [n.dns1, n.dns2].map(s => (s || "").trim()).filter(Boolean);
-    const cfg = { name: n.name, mac: n.mac, method: n.method };
+    const cfg = { kind: n.kind || "ethernet", name: n.name, mac: n.mac, method: n.method || "dhcp" };
     if (n.method === "static") {
       cfg.address = n.ip ? `${n.ip}/${n.prefix || "24"}` : "";
       cfg.gateway = n.gateway;
       cfg.dns = dns;
     }
+    if (cfg.kind === "bond") {
+      cfg.bond_mode = n.bond_mode || "802.3ad";
+      cfg.bond_members = n.bond_members || [];
+      if (!cfg.name) cfg.name = "bond0";
+    }
+    if (cfg.kind === "vlan") {
+      cfg.vlan_id = Number(n.vlan_id || 0);
+      cfg.parent = n.parent;
+      if (!cfg.name && cfg.parent && cfg.vlan_id) cfg.name = cfg.parent + "." + cfg.vlan_id;
+    }
     return cfg;
   });
+  const inv = machineNics(selectedMachine());
+  const have = new Set(nics.filter(x => (x.kind || "ethernet") === "ethernet").map(x => x.name));
+  for (const n of [...nics]) {
+    if (n.kind !== "bond") continue;
+    for (const m of n.bond_members || []) {
+      if (!m || have.has(m)) continue;
+      const hit = inv.find(x => x.name === m);
+      nics.push({ kind: "ethernet", name: m, mac: hit ? hit.mac : "", method: "none" });
+      have.add(m);
+    }
+  }
   return {
     machine_id: d.machine_id, image_id: d.image_id, hostname: d.hostname, username: d.username,
     password: d.password, timezone: d.timezone, firmware: d.firmware,
@@ -593,7 +746,12 @@ function renderInstall() {
   if (!installDraft) {
     installDraft = blankInstallDraft();
     if (machines[0]) installDraft.machine_id = machines[0].id;
-    if (images[0]) installDraft.image_id = images[0].id;
+    if (images[0]) {
+      installDraft.image_id = images[0].id;
+      const v = osVersion(images[0].os_family, images[0].os_version);
+      if (v && v.default_user) installDraft.username = v.default_user;
+      installDraft.partitions = defaultParts(installDraft.firmware, images[0].os_family, images[0].os_version);
+    }
     applyMachineDefaults();
   }
   if (installDraft.machine_id && !machines.some(m => m.id === installDraft.machine_id) && machines[0]) {
@@ -615,7 +773,7 @@ function renderInstall() {
           <p class="hint">${m && m.inventory ? `${m.inventory.cpus || 0} 核 · ${m.inventory.memory_mb || 0} MB · ${(m.inventory.disks || []).length} 块盘` : "选一台已进入 RAMOS 的机器"}</p>
         </div>
         <div><label>镜像</label>
-          <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>
+          <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(osLabel(x) || x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>
           <p class="hint">${imageHint(img, d.firmware)}</p>
         </div>
       </div>
@@ -674,10 +832,14 @@ function renderInstall() {
       `}
       <div class="editor-head" style="margin-top:18px">
         <h4>网卡</h4>
-        <button type="button" class="ghost" id="in-add-nic">添加网卡</button>
+        <div class="actions">
+          <button type="button" class="ghost" id="in-add-nic">添加网卡</button>
+          <button type="button" class="ghost" id="in-add-bond">添加 Bond</button>
+          <button type="button" class="ghost" id="in-add-vlan">添加 VLAN</button>
+        </div>
       </div>
-      <div id="in-nics-box">${(d.nics.length ? d.nics : [blankNic()]).map((n, i) => renderNicRow(n, i, nics)).join("")}</div>
-      <p class="hint">${nics.length ? "网卡列表来自机器上报，静态地址只需再填 IP / 网关 / DNS。" : "尚未上报网卡时默认 DHCP。"}</p>
+      <div id="in-nics-box">${(d.nics.length ? d.nics : [blankNic()]).map((n, i) => renderNicRow(n, i, nics, d.nics)).join("")}</div>
+      <p class="hint">${nics.length ? "物理网卡、Bond、VLAN 可组合：例如 eth0+eth1 做 bond0，再在 bond0 上建 VLAN。" : "尚未上报网卡时默认 DHCP。Bond 上也可再配 VLAN。"} 网卡配置按镜像的系统版本写入（Ubuntu netplan / Debian ifupdown / Rocky NetworkManager）。</p>
     `;
 
   view.innerHTML = `
@@ -719,11 +881,19 @@ function renderInstall() {
     renderInstall();
   };
   const isel = $("#in-i");
-  if (isel) isel.onchange = () => { collectInstallForm(); renderInstall(); };
+  if (isel) isel.onchange = () => {
+    collectInstallForm();
+    const img = selectedImage();
+    const v = img ? osVersion(img.os_family, img.os_version) : null;
+    if (v && v.default_user) installDraft.username = v.default_user;
+    installDraft.partitions = defaultParts(installDraft.firmware, img && img.os_family, img && img.os_version);
+    renderInstall();
+  };
   const fw = $("#in-fw");
   if (fw) fw.onchange = () => {
     collectInstallForm();
-    installDraft.partitions = defaultParts(installDraft.firmware);
+    const img = selectedImage();
+    installDraft.partitions = defaultParts(installDraft.firmware, img && img.os_family, img && img.os_version);
     renderInstall();
   };
   const user = $("#in-user");
@@ -766,7 +936,8 @@ function renderInstall() {
   const resetParts = $("#in-reset-parts");
   if (resetParts) resetParts.onclick = () => {
     collectInstallForm();
-    installDraft.partitions = defaultParts(installDraft.firmware);
+    const img = selectedImage();
+    installDraft.partitions = defaultParts(installDraft.firmware, img && img.os_family, img && img.os_version);
     renderInstall();
   };
   view.querySelectorAll("[data-del-part]").forEach(btn => {
@@ -785,8 +956,26 @@ function renderInstall() {
   const addNic = $("#in-add-nic");
   if (addNic) addNic.onclick = () => {
     collectInstallForm();
-    const unused = nics.find(x => !installDraft.nics.some(n => n.name === x.name));
+    const unused = nics.find(x => !installDraft.nics.some(n => n.kind !== "bond" && n.kind !== "vlan" && n.name === x.name));
     installDraft.nics.push(unused ? { ...blankNic(), name: unused.name, mac: unused.mac || "" } : blankNic());
+    renderInstall();
+  };
+  const addBond = $("#in-add-bond");
+  if (addBond) addBond.onclick = () => {
+    collectInstallForm();
+    const used = new Set(installDraft.nics.filter(n => n.kind === "bond").map(n => n.name));
+    let name = "bond0";
+    for (let i = 0; used.has(name); i++) name = "bond" + i;
+    const members = nics.slice(0, 2).map(x => x.name).filter(Boolean);
+    installDraft.nics.push({ ...blankNic(), kind: "bond", name, method: "none", bond_members: members });
+    renderInstall();
+  };
+  const addVlan = $("#in-add-vlan");
+  if (addVlan) addVlan.onclick = () => {
+    collectInstallForm();
+    const bond = [...installDraft.nics].reverse().find(n => n.kind === "bond" && n.name);
+    const parent = (bond && bond.name) || (nics[0] && nics[0].name) || "eth0";
+    installDraft.nics.push({ ...blankNic(), kind: "vlan", parent, vlan_id: "100", method: "static", name: parent + ".100" });
     renderInstall();
   };
   view.querySelectorAll("[data-del-nic]").forEach(btn => {
@@ -794,6 +983,12 @@ function renderInstall() {
       collectInstallForm();
       installDraft.nics.splice(Number(btn.dataset.delNic), 1);
       if (!installDraft.nics.length) installDraft.nics = [blankNic()];
+      renderInstall();
+    };
+  });
+  $$(".n-kind").forEach(el => {
+    el.onchange = () => {
+      collectInstallForm();
       renderInstall();
     };
   });
@@ -835,6 +1030,13 @@ function renderInstall() {
     if (!isWholeDiskImage(img)) {
       const roots = (body.partitions || []).filter(p => p.mount === "/");
       if (roots.length !== 1) return alert("请恰好指定一个挂载为 / 的根分区");
+    }
+    for (const n of (body.network && body.network.nics) || []) {
+      if (n.kind === "vlan") {
+        if (!n.vlan_id || n.vlan_id < 1 || n.vlan_id > 4094) return alert("VLAN ID 需要在 1–4094");
+        if (!n.parent) return alert("VLAN 需要选择父接口（物理网卡或 Bond）");
+      }
+      if (n.kind === "bond" && !(n.bond_members && n.bond_members.length)) return alert("Bond 请至少勾选一块成员网卡");
     }
     try {
       await api("/jobs/install", { method: "POST", body: JSON.stringify(body) });
