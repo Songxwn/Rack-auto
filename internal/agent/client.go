@@ -154,6 +154,7 @@ func CollectInventory() *model.Inventory {
 		NICs:     listNICs(),
 		UptimeSec: uptime(),
 	}
+	applyDMI(inv)
 	return inv
 }
 

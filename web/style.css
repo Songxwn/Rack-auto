@@ -381,6 +381,15 @@ label { display: block; font-size: 11px; color: var(--muted); margin: 10px 0 6px
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.kv {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 6px 14px;
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
 pre.log {
   background: #030608;
   color: #9dffc2;

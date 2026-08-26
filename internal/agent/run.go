@@ -29,6 +29,9 @@ func Run(ctx context.Context, url, token, mac, version string) error {
 	c := New(url, token, mac, version)
 	inv := CollectInventory()
 	fmt.Printf("RAMOS agent %s mac=%s url=%s\n", version, mac, url)
+	if inv != nil && inv.HasIdentity() {
+		fmt.Printf("hardware %s serial=%s\n", inv.ProductLine(), inv.Serial)
+	}
 	for {
 		if err := c.Register(inv); err != nil {
 			fmt.Println("register:", err)

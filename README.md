@@ -148,6 +148,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | CRUD | `/api/v1/machines` | 机器与 BMC |
 | POST | `/api/v1/machines/{id}/power` | `on/off/cycle/reset/soft` |
 | POST | `/api/v1/machines/{id}/boot` | PXE/磁盘/光盘，BIOS 或 UEFI |
+| POST | `/api/v1/machines/{id}/detect` | 检测品牌/型号/序列号（Redfish 或已上报的 DMI） |
 | GET | `/api/v1/os-catalog` | 镜像系统/版本（网卡与分区后端） |
 | POST | `/api/v1/images/{id}/inspect` | 检测已上传镜像的分区表和引导 |
 | POST | `/api/v1/jobs/install` | 装机任务 |

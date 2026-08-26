@@ -154,9 +154,11 @@ function renderMachines() {
             <td>${badge(m.status)}<div class="hint">${escapeHtml(m.boot_mode || "")}</div></td>
             <td>${escapeHtml(m.firmware || "-")}</td>
             <td>${escapeHtml(m.bmc_type || "-")}<div class="hint">${escapeHtml(m.bmc_address || "")}</div></td>
-            <td class="hint">${m.inventory ? `${m.inventory.cpus}C / ${m.inventory.memory_mb}MB / ${(m.inventory.disks||[]).length} disks` : "-"}</td>
+            <td>${hwCell(m)}</td>
             <td class="actions">
+              <button class="primary" data-act="install" data-id="${m.id}">装机</button>
               <button data-act="detail" data-id="${m.id}">详情</button>
+              <button data-act="detect" data-id="${m.id}">检测</button>
               <button data-act="pxe" data-id="${m.id}">PXE重启</button>
               <button data-act="on" data-id="${m.id}">开机</button>
               <button data-act="off" data-id="${m.id}">关机</button>
@@ -174,6 +176,12 @@ function renderMachines() {
     const id = b.dataset.id;
     try {
       if (b.dataset.act === "detail") return machineDetail(id);
+      if (b.dataset.act === "install") return startInstall(id);
+      if (b.dataset.act === "detect") {
+        await api("/machines/" + id + "/detect", { method: "POST" });
+        await load(); render();
+        return;
+      }
       if (b.dataset.act === "delete") {
         await removeMachine(id, b.dataset.name || id);
         return;
@@ -237,22 +245,46 @@ async function machineDetail(id) {
   const m = cache.machines.find(x => x.id === id);
   if (!m) return;
   const inv = m.inventory || {};
+  const kv = [
+    ["品牌", inv.vendor],
+    ["型号", inv.product],
+    ["序列号", inv.serial],
+    ["SKU", inv.sku],
+    ["UUID", inv.uuid],
+    ["资产标签", inv.asset_tag],
+    ["主板", [inv.board_vendor, inv.board_name].filter(Boolean).join(" ")],
+    ["主板序列号", inv.board_serial],
+    ["BIOS", [inv.bios_vendor, inv.bios_version, inv.bios_date].filter(Boolean).join(" · ")],
+    ["来源", inv.detect_source === "redfish" ? "Redfish BMC" : (inv.detect_source === "dmi" ? "RAMOS DMI" : inv.detect_source)],
+  ].filter(x => x[1]);
   openModal(`
     <h3>${escapeHtml(m.name)}</h3>
     <p class="hint mono">${escapeHtml(m.mac)} · ${escapeHtml(m.ip || "")} · agent ${escapeHtml(m.agent_version || "-")}</p>
     <div class="actions">
+      <button class="primary" id="md-install">装机</button>
+      <button id="md-detect">检测硬件</button>
       <button id="ed">编辑 BMC</button>
       <button id="pxe">PXE 引导并重启</button>
       <button id="disk">下次从磁盘启动</button>
       <button class="danger" id="md-del">删除机器</button>
     </div>
+    <h4>服务器</h4>
+    ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}</dl>` : `<div class="hint">还没有品牌/型号/序列号。点「检测硬件」（需 Redfish），或先 PXE 进 RAMOS 让 Agent 上报 DMI。</div>`}
     <h4>CPU / 内存</h4>
     <div class="hint">${escapeHtml(inv.cpu_model || "")} · ${inv.cpus || 0} 核 · ${inv.memory_mb || 0} MB · ${escapeHtml(inv.firmware || "")}</div>
     <h4>磁盘</h4>
-    ${(inv.disks || []).map(d => `<div class="hint mono">${escapeHtml(d.path)} ${fmtBytes(d.size_b)} ${escapeHtml(d.model || "")}</div>`).join("") || "<div class='hint'>-</div>"}
+    ${(inv.disks || []).map(d => `<div class="hint mono">${escapeHtml(d.path)} ${fmtBytes(d.size_b)} ${escapeHtml(d.model || "")}${d.serial ? " SN " + escapeHtml(d.serial) : ""}</div>`).join("") || "<div class='hint'>-</div>"}
     <h4>网卡</h4>
     ${(inv.nics || []).map(n => `<div class="hint mono">${escapeHtml(n.name)} ${escapeHtml(n.mac)} ${escapeHtml((n.ips||[]).join(", "))}</div>`).join("") || "<div class='hint'>-</div>"}
   `);
+  $("#md-install").onclick = () => startInstall(id);
+  $("#md-detect").onclick = async () => {
+    try {
+      await api("/machines/" + id + "/detect", { method: "POST" });
+      await load();
+      machineDetail(id);
+    } catch (e) { alert(e.message); }
+  };
   $("#ed").onclick = () => machineForm(m);
   $("#pxe").onclick = async () => { await api(`/machines/${id}/pxe-install`, { method: "POST" }); closeModal(); };
   $("#disk").onclick = async () => {
@@ -263,6 +295,50 @@ async function machineDetail(id) {
     try { await removeMachine(id, m.name || m.mac || id); }
     catch (e) { alert(e.message); }
   };
+}
+
+function productLine(inv) {
+  if (!inv) return "";
+  const v = (inv.vendor || "").trim();
+  const p = (inv.product || "").trim();
+  if (v && p) return p.toLowerCase().startsWith(v.toLowerCase()) ? p : v + " " + p;
+  return p || v;
+}
+
+function hwCell(m) {
+  const inv = (m && m.inventory) || {};
+  const line = productLine(inv);
+  const specs = inv.cpus || inv.memory_mb ? `${inv.cpus || 0}C / ${inv.memory_mb || 0}MB / ${(inv.disks || []).length} disks` : "";
+  const top = line ? escapeHtml(line) : (specs ? `<span class="hint">${escapeHtml(specs)}</span>` : `<span class="hint">-</span>`);
+  const sn = inv.serial ? `<div class="hint mono">SN ${escapeHtml(inv.serial)}</div>` : "";
+  const sub = line && specs ? `<div class="hint">${escapeHtml(specs)}</div>` : "";
+  return top + sn + sub;
+}
+
+function startInstall(id) {
+  closeModal();
+  installDraft = blankInstallDraft();
+  installDraft.machine_id = id;
+  const images = cache.images || [];
+  if (images[0]) {
+    installDraft.image_id = images[0].id;
+    const v = osVersion(images[0].os_family, images[0].os_version);
+    if (v && v.default_user) installDraft.username = v.default_user;
+    installDraft.partitions = defaultParts(installDraft.firmware, images[0].os_family, images[0].os_version);
+  }
+  applyMachineDefaults();
+  navTo("install");
+}
+
+function machineHint(m) {
+  if (!m) return "选一台已进入 RAMOS 的机器";
+  const inv = m.inventory || {};
+  const bits = [];
+  const line = productLine(inv);
+  if (line) bits.push(line);
+  if (inv.serial) bits.push("SN " + inv.serial);
+  bits.push(`${inv.cpus || 0} 核 · ${inv.memory_mb || 0} MB · ${(inv.disks || []).length} 块盘`);
+  return bits.join(" · ");
 }
 
 function setUploadProgress(p) {
@@ -906,7 +982,7 @@ function renderInstall() {
       <div class="row">
         <div><label>机器</label>
           <select id="in-m">${machines.length ? machines.map(x => `<option value="${x.id}" ${x.id === d.machine_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(x.mac)}</option>`).join("") : `<option value="">（还没有注册的机器）</option>`}</select>
-          <p class="hint">${m && m.inventory ? `${m.inventory.cpus || 0} 核 · ${m.inventory.memory_mb || 0} MB · ${(m.inventory.disks || []).length} 块盘` : "选一台已进入 RAMOS 的机器"}</p>
+          <p class="hint">${machineHint(m)}</p>
         </div>
         <div><label>镜像</label>
           <select id="in-i">${images.length ? images.map(x => `<option value="${x.id}" ${x.id === d.image_id ? "selected" : ""}>${escapeHtml(x.name)} · ${escapeHtml(osLabel(x) || x.kind || "")}</option>`).join("") : `<option value="">（请先在「镜像」登记）</option>`}</select>

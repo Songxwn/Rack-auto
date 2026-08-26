@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -71,17 +72,67 @@ func (m Machine) Public() Machine {
 }
 
 type Inventory struct {
-	Hostname  string `json:"hostname"`
-	Firmware  string `json:"firmware"`
-	Arch      string `json:"arch"`
-	CPUs      int    `json:"cpus"`
-	CPUModel  string `json:"cpu_model"`
-	MemoryMB  int    `json:"memory_mb"`
-	Disks     []Disk `json:"disks"`
-	NICs      []NIC  `json:"nics"`
-	BMC       string `json:"bmc,omitempty"`
-	Kernel    string `json:"kernel"`
-	UptimeSec int64  `json:"uptime_sec"`
+	Hostname       string `json:"hostname"`
+	Firmware       string `json:"firmware"`
+	Arch           string `json:"arch"`
+	CPUs           int    `json:"cpus"`
+	CPUModel       string `json:"cpu_model"`
+	MemoryMB       int    `json:"memory_mb"`
+	Disks          []Disk `json:"disks"`
+	NICs           []NIC  `json:"nics"`
+	BMC            string `json:"bmc,omitempty"`
+	Kernel         string `json:"kernel"`
+	UptimeSec      int64  `json:"uptime_sec"`
+	Vendor         string `json:"vendor,omitempty"`
+	Product        string `json:"product,omitempty"`
+	ProductVersion string `json:"product_version,omitempty"`
+	Serial         string `json:"serial,omitempty"`
+	SKU            string `json:"sku,omitempty"`
+	UUID           string `json:"uuid,omitempty"`
+	Family         string `json:"family,omitempty"`
+	BoardVendor    string `json:"board_vendor,omitempty"`
+	BoardName      string `json:"board_name,omitempty"`
+	BoardSerial    string `json:"board_serial,omitempty"`
+	AssetTag       string `json:"asset_tag,omitempty"`
+	BIOSVendor     string `json:"bios_vendor,omitempty"`
+	BIOSVersion    string `json:"bios_version,omitempty"`
+	BIOSDate       string `json:"bios_date,omitempty"`
+	DetectSource   string `json:"detect_source,omitempty"`
+}
+
+func (inv *Inventory) HasIdentity() bool {
+	return inv != nil && (inv.Vendor != "" || inv.Product != "" || inv.Serial != "")
+}
+
+func (inv *Inventory) ProductLine() string {
+	if inv == nil {
+		return ""
+	}
+	v, p := strings.TrimSpace(inv.Vendor), strings.TrimSpace(inv.Product)
+	switch {
+	case v != "" && p != "":
+		if strings.HasPrefix(strings.ToLower(p), strings.ToLower(v)) {
+			return p
+		}
+		return v + " " + p
+	case p != "":
+		return p
+	default:
+		return v
+	}
+}
+
+func (inv *Inventory) IdentityName() string {
+	if inv == nil {
+		return ""
+	}
+	if line := inv.ProductLine(); line != "" {
+		return line
+	}
+	if inv.Serial != "" {
+		return "SN " + inv.Serial
+	}
+	return ""
 }
 
 type Disk struct {

@@ -57,6 +57,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/machines/{id}/power", s.auth(s.powerStatus))
 	mux.HandleFunc("POST /api/v1/machines/{id}/boot", s.auth(s.setBoot))
 	mux.HandleFunc("POST /api/v1/machines/{id}/pxe-install", s.auth(s.pxeInstall))
+	mux.HandleFunc("POST /api/v1/machines/{id}/detect", s.auth(s.detectMachine))
 
 	mux.HandleFunc("GET /api/v1/os-catalog", s.auth(s.osCatalog))
 	mux.HandleFunc("GET /api/v1/images", s.auth(s.listImages))
@@ -378,6 +379,73 @@ func (s *Server) deleteMachine(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.AddEvent("info", "删除机器 "+name, id)
 	w.WriteHeader(204)
+}
+
+func (s *Server) detectMachine(w http.ResponseWriter, r *http.Request) {
+	m, err := s.Store.GetMachine(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	inv := m.Inventory
+	if inv == nil {
+		inv = &model.Inventory{}
+	}
+	if strings.EqualFold(m.BMCType, model.BMCRedfish) && strings.TrimSpace(m.BMCAddress) != "" {
+		ctl, err := bmc.Open(m)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		rf, ok := ctl.(*bmc.Redfish)
+		if !ok {
+			http.Error(w, "BMC is not Redfish", 400)
+			return
+		}
+		got, err := rf.ReadInventory(r.Context())
+		if err != nil {
+			s.Store.AddEvent("error", "detect hardware failed: "+err.Error(), m.ID)
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		inv = bmc.MergeIdentity(inv, got)
+	}
+	if !inv.HasIdentity() && inv.BIOSVersion == "" {
+		http.Error(w, "还没有品牌/型号/序列号。请 PXE 进入 RAMOS 让 Agent 读取 DMI，或配置 Redfish 后再检测。", 409)
+		return
+	}
+	m.Inventory = inv
+	if ident := inv.IdentityName(); ident != "" && genericMachineName(m.Name, m.MAC) {
+		m.Name = ident
+	}
+	if err := s.Store.UpsertMachine(&m); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	line := inv.ProductLine()
+	if line == "" {
+		line = m.Name
+	}
+	msg := "检测硬件 " + line
+	if inv.Serial != "" {
+		msg += " SN " + inv.Serial
+	}
+	s.Store.AddEvent("info", msg, m.ID)
+	writeJSON(w, 200, m.Public())
+}
+
+func genericMachineName(name, mac string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	mac = netboot.NormalizeMAC(mac)
+	compact := strings.ReplaceAll(mac, ":", "")
+	if n == "" || n == mac || strings.ReplaceAll(n, ":", "") == compact {
+		return true
+	}
+	switch n {
+	case "ubuntu", "debian", "rocky", "almalinux", "alma", "centos", "ramos", "live", "localhost", "localhost.localdomain":
+		return true
+	}
+	return false
 }
 
 func (s *Server) withBMC(w http.ResponseWriter, r *http.Request, fn func(bmc.Controller, model.Machine) error) {
@@ -827,6 +895,11 @@ func (s *Server) agentRegister(w http.ResponseWriter, r *http.Request) {
 			fw = in.Inventory.Firmware
 		}
 		name := in.Hostname
+		if in.Inventory != nil {
+			if ident := in.Inventory.IdentityName(); ident != "" && genericMachineName(name, in.MAC) {
+				name = ident
+			}
+		}
 		if name == "" {
 			name = in.MAC
 		}
@@ -849,8 +922,17 @@ func (s *Server) agentRegister(w http.ResponseWriter, r *http.Request) {
 		if st == model.MachineOffline || st == "" {
 			st = model.MachineReady
 		}
+		if m.Inventory != nil && in.Inventory != nil {
+			bmc.FillIdentityGaps(in.Inventory, m.Inventory)
+		}
 		_ = s.Store.TouchMachine(m.ID, in.IP, st, fw, in.AgentVersion, in.Inventory)
 		m, _ = s.Store.GetMachine(m.ID)
+		if m.Inventory != nil {
+			if ident := m.Inventory.IdentityName(); ident != "" && genericMachineName(m.Name, m.MAC) {
+				m.Name = ident
+				_ = s.Store.UpsertMachine(&m)
+			}
+		}
 	}
 	writeJSON(w, 200, map[string]any{"machine_id": m.ID, "name": m.Name})
 }

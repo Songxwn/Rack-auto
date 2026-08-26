@@ -366,6 +366,173 @@ func (r *Redfish) SetBoot(ctx context.Context, device, firmware string, persiste
 	return err
 }
 
+func (r *Redfish) ReadInventory(ctx context.Context) (*model.Inventory, error) {
+	path, err := r.systemPath(ctx)
+	if err != nil {
+		return nil, err
+	}
+	_, body, err := r.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	inv := parseRedfishSystem(body)
+	if inv.Serial == "" {
+		if ch, err := r.chassisPath(ctx); err == nil && ch != "" {
+			if _, cb, err := r.do(ctx, http.MethodGet, ch, nil); err == nil {
+				fillRedfishChassis(inv, cb)
+			}
+		}
+	}
+	if inv.HasIdentity() || inv.BIOSVersion != "" {
+		inv.DetectSource = "redfish"
+	}
+	return inv, nil
+}
+
+func (r *Redfish) chassisPath(ctx context.Context) (string, error) {
+	_, body, err := r.do(ctx, http.MethodGet, "/redfish/v1/Chassis", nil)
+	if err != nil {
+		return "", err
+	}
+	var col struct {
+		Members []struct {
+			Path string `json:"@odata.id"`
+		} `json:"Members"`
+	}
+	if err := json.Unmarshal(body, &col); err != nil {
+		return "", err
+	}
+	if len(col.Members) == 0 {
+		return "", fmt.Errorf("Redfish 未发现 Chassis")
+	}
+	return col.Members[0].Path, nil
+}
+
+func parseRedfishSystem(body []byte) *model.Inventory {
+	var sys struct {
+		Manufacturer string `json:"Manufacturer"`
+		Model        string `json:"Model"`
+		SKU          string `json:"SKU"`
+		SerialNumber string `json:"SerialNumber"`
+		UUID         string `json:"UUID"`
+		PartNumber   string `json:"PartNumber"`
+		BiosVersion  string `json:"BiosVersion"`
+		HostName     string `json:"HostName"`
+		AssetTag     string `json:"AssetTag"`
+	}
+	_ = json.Unmarshal(body, &sys)
+	inv := &model.Inventory{
+		Hostname:    strings.TrimSpace(sys.HostName),
+		Vendor:      strings.TrimSpace(sys.Manufacturer),
+		Product:     strings.TrimSpace(sys.Model),
+		Serial:      strings.TrimSpace(sys.SerialNumber),
+		SKU:         strings.TrimSpace(sys.SKU),
+		UUID:        strings.TrimSpace(sys.UUID),
+		AssetTag:    strings.TrimSpace(sys.AssetTag),
+		BIOSVersion: strings.TrimSpace(sys.BiosVersion),
+	}
+	if inv.SKU == "" {
+		inv.SKU = strings.TrimSpace(sys.PartNumber)
+	}
+	return inv
+}
+
+func fillRedfishChassis(inv *model.Inventory, body []byte) {
+	if inv == nil {
+		return
+	}
+	var ch struct {
+		SerialNumber string `json:"SerialNumber"`
+		SKU          string `json:"SKU"`
+		AssetTag     string `json:"AssetTag"`
+		Manufacturer string `json:"Manufacturer"`
+		Model        string `json:"Model"`
+	}
+	_ = json.Unmarshal(body, &ch)
+	if inv.Serial == "" {
+		inv.Serial = strings.TrimSpace(ch.SerialNumber)
+	}
+	if inv.SKU == "" {
+		inv.SKU = strings.TrimSpace(ch.SKU)
+	}
+	if inv.AssetTag == "" {
+		inv.AssetTag = strings.TrimSpace(ch.AssetTag)
+	}
+	if inv.Vendor == "" {
+		inv.Vendor = strings.TrimSpace(ch.Manufacturer)
+	}
+	if inv.Product == "" {
+		inv.Product = strings.TrimSpace(ch.Model)
+	}
+}
+
+func MergeIdentity(dst, src *model.Inventory) *model.Inventory {
+	if dst == nil {
+		dst = &model.Inventory{}
+	}
+	if src == nil {
+		return dst
+	}
+	set := func(cur *string, v string) {
+		if strings.TrimSpace(v) != "" {
+			*cur = strings.TrimSpace(v)
+		}
+	}
+	set(&dst.Vendor, src.Vendor)
+	set(&dst.Product, src.Product)
+	set(&dst.ProductVersion, src.ProductVersion)
+	set(&dst.Serial, src.Serial)
+	set(&dst.SKU, src.SKU)
+	set(&dst.UUID, src.UUID)
+	set(&dst.Family, src.Family)
+	set(&dst.BoardVendor, src.BoardVendor)
+	set(&dst.BoardName, src.BoardName)
+	set(&dst.BoardSerial, src.BoardSerial)
+	set(&dst.AssetTag, src.AssetTag)
+	set(&dst.BIOSVendor, src.BIOSVendor)
+	set(&dst.BIOSVersion, src.BIOSVersion)
+	set(&dst.BIOSDate, src.BIOSDate)
+	if src.DetectSource != "" {
+		dst.DetectSource = src.DetectSource
+	}
+	if src.Hostname != "" && dst.Hostname == "" {
+		dst.Hostname = src.Hostname
+	}
+	return dst
+}
+
+func FillIdentityGaps(dst, src *model.Inventory) *model.Inventory {
+	if dst == nil {
+		dst = &model.Inventory{}
+	}
+	if src == nil {
+		return dst
+	}
+	fill := func(cur *string, v string) {
+		if strings.TrimSpace(*cur) == "" && strings.TrimSpace(v) != "" {
+			*cur = strings.TrimSpace(v)
+		}
+	}
+	fill(&dst.Vendor, src.Vendor)
+	fill(&dst.Product, src.Product)
+	fill(&dst.ProductVersion, src.ProductVersion)
+	fill(&dst.Serial, src.Serial)
+	fill(&dst.SKU, src.SKU)
+	fill(&dst.UUID, src.UUID)
+	fill(&dst.Family, src.Family)
+	fill(&dst.BoardVendor, src.BoardVendor)
+	fill(&dst.BoardName, src.BoardName)
+	fill(&dst.BoardSerial, src.BoardSerial)
+	fill(&dst.AssetTag, src.AssetTag)
+	fill(&dst.BIOSVendor, src.BIOSVendor)
+	fill(&dst.BIOSVersion, src.BIOSVersion)
+	fill(&dst.BIOSDate, src.BIOSDate)
+	if dst.DetectSource == "" {
+		dst.DetectSource = src.DetectSource
+	}
+	return dst
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
