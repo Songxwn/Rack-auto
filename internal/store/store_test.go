@@ -35,6 +35,23 @@ func TestMachineAndJob(t *testing.T) {
 	if p, ok := red.Params.(map[string]any); !ok || p["password"] != "" {
 		t.Fatalf("password not redacted: %#v", red.Params)
 	}
+	if err := st.SetMachineStatus(m.ID, model.MachineInstalling); err != nil {
+		t.Fatal(err)
+	}
+	active, err := st.HasActiveJob(m.ID, "")
+	if err != nil || !active {
+		t.Fatalf("expected active job: %v %v", err, active)
+	}
+	if err := st.DeleteJob(j.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetJob(j.ID); err == nil {
+		t.Fatal("deleted job still present")
+	}
+	active, err = st.HasActiveJob(m.ID, "")
+	if err != nil || active {
+		t.Fatalf("expected no active job: %v %v", err, active)
+	}
 }
 
 func TestImageInspectRoundtrip(t *testing.T) {

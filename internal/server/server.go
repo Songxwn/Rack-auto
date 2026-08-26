@@ -96,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/v1/jobs", s.webAuth(s.listJobs))
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.webAuth(s.getJob))
+	mux.HandleFunc("DELETE /api/v1/jobs/{id}", s.webAuth(s.deleteJob))
 	mux.HandleFunc("POST /api/v1/jobs/install", s.webAuth(s.createInstall))
 	mux.HandleFunc("POST /api/v1/jobs/stress", s.webAuth(s.createStress))
 	mux.HandleFunc("POST /api/v1/jobs/{id}/cancel", s.webAuth(s.cancelJob))
@@ -1134,7 +1135,42 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	j.FinishedAt = &t
 	j.Message = "已取消"
 	_ = s.Store.UpdateJob(j)
+	s.releaseMachineIfIdle(j.MachineID)
 	writeJSON(w, 200, store.RedactJob(j))
+}
+
+func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	j, err := s.Store.GetJob(id)
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	if err := s.Store.DeleteJob(id); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.releaseMachineIfIdle(j.MachineID)
+	s.Store.AddEvent("info", "删除任务 "+j.Type+" "+id, j.MachineID)
+	w.WriteHeader(204)
+}
+
+func (s *Server) releaseMachineIfIdle(machineID string) {
+	if machineID == "" {
+		return
+	}
+	m, err := s.Store.GetMachine(machineID)
+	if err != nil {
+		return
+	}
+	if m.Status != model.MachineInstalling && m.Status != model.MachineStressing {
+		return
+	}
+	active, err := s.Store.HasActiveJob(machineID, "")
+	if err != nil || active {
+		return
+	}
+	_ = s.Store.SetMachineStatus(machineID, model.MachineReady)
 }
 
 func (s *Server) agentRegister(w http.ResponseWriter, r *http.Request) {

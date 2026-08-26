@@ -589,6 +589,34 @@ func (s *Store) UpdateJob(j model.Job) error {
 	return err
 }
 
+func (s *Store) DeleteJob(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`DELETE FROM jobs WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("job not found")
+	}
+	return nil
+}
+
+func (s *Store) HasActiveJob(machineID, exceptID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	q := `SELECT COUNT(*) FROM jobs WHERE machine_id=? AND status IN (?,?)`
+	args := []any{machineID, model.JobPending, model.JobRunning}
+	if exceptID != "" {
+		q += ` AND id!=?`
+		args = append(args, exceptID)
+	}
+	var n int
+	err := s.db.QueryRow(q, args...).Scan(&n)
+	return n > 0, err
+}
+
 func (s *Store) AppendJobLog(id, line string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

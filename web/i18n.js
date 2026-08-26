@@ -279,6 +279,7 @@ const DICT = {
   "j.col.prog": ["进度", "Progress"],
   "j.col.msg": ["信息", "Message"],
   "j.log": ["日志", "Logs"],
+  "j.delConfirm": ["删除任务 {type}（{id}）？卡死的装机任务删掉后会解除 PXE / WinPE 绑定，机器回到就绪。", "Delete job {type} ({id})? Removing a stuck install job clears PXE / WinPE binding and returns the machine to ready."],
   "j.empty": ["NO JOBS · 装机与压测任务会出现在这里", "NO JOBS · install and stress jobs show up here"],
   "j.nolog": ["暂无日志", "No logs yet"],
   "boot.urlTitle": ["控制面地址", "Control-plane URL"],

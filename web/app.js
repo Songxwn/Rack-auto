@@ -1654,28 +1654,46 @@ function renderStress() {
 }
 
 function renderJobs() {
+  const nameOf = (id) => {
+    const m = (cache.machines || []).find(x => x.id === id);
+    return m ? (m.name || m.mac || id) : id;
+  };
   view.innerHTML = `
     <div class="panel">
       <table>
         <thead><tr><th>${t("j.col.job")}</th><th>${t("j.col.machine")}</th><th>${t("j.col.status")}</th><th>${t("j.col.prog")}</th><th>${t("j.col.msg")}</th><th></th></tr></thead>
         <tbody>${(cache.jobs||[]).length ? (cache.jobs||[]).map(j => `<tr>
           <td>${escapeHtml(j.type)}<div class="hint mono">${escapeHtml(j.id)}</div></td>
-          <td class="mono">${escapeHtml(j.machine_id)}</td>
+          <td>${escapeHtml(nameOf(j.machine_id))}<div class="hint mono">${escapeHtml(j.machine_id)}</div></td>
           <td>${badge(j.status)}</td>
           <td class="mono">${j.progress || 0}%<div class="prog"><i style="width:${Math.max(0, Math.min(100, j.progress || 0))}%"></i></div></td>
           <td>${escapeHtml(j.message || "")}</td>
-          <td><button data-j="${j.id}">${t("j.log")}</button></td>
+          <td class="actions">
+            <button data-act="log" data-id="${escapeHtml(j.id)}">${t("j.log")}</button>
+            <button class="danger" data-act="delete" data-id="${escapeHtml(j.id)}" data-type="${escapeHtml(j.type)}">${t("btn.delete")}</button>
+          </td>
         </tr>`).join("") : `<tr><td colspan="6" class="empty">${t("j.empty")}</td></tr>`}</tbody>
       </table>
     </div>`;
   view.onclick = async (ev) => {
-    const id = ev.target.dataset.j;
-    if (!id) return;
-    const j = await api("/jobs/" + id);
-    openModal(`<h3>${escapeHtml(j.type)} ${badge(j.status)}</h3>
-      <p class="hint">${escapeHtml(j.message || "")}</p>
-      ${j.result ? `<pre class="log">${escapeHtml(JSON.stringify(j.result, null, 2))}</pre>` : ""}
-      <pre class="log">${escapeHtml(j.logs || t("j.nolog"))}</pre>`);
+    const b = ev.target.closest("button[data-act]");
+    if (!b) return;
+    const id = b.dataset.id;
+    try {
+      if (b.dataset.act === "delete") {
+        if (!confirm(t("j.delConfirm", { type: b.dataset.type || "", id }))) return;
+        await api("/jobs/" + id, { method: "DELETE" });
+        await load();
+        render();
+        return;
+      }
+      if (b.dataset.act !== "log") return;
+      const j = await api("/jobs/" + id);
+      openModal(`<h3>${escapeHtml(j.type)} ${badge(j.status)}</h3>
+        <p class="hint">${escapeHtml(j.message || "")}</p>
+        ${j.result ? `<pre class="log">${escapeHtml(JSON.stringify(j.result, null, 2))}</pre>` : ""}
+        <pre class="log">${escapeHtml(j.logs || t("j.nolog"))}</pre>`);
+    } catch (e) { alert(e.message); }
   };
 }
 

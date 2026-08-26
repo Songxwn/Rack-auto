@@ -424,7 +424,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 2. 登录用户默认 `root`（也可改成 ubuntu/debian 等发行版用户），填密码；公钥可「添加」或「导入 .pub 文件」。常用账号和公钥可先在「模板」页保存，第 2 步点模板名称即可填入；也可把当前填写内容保存为新模板。
 3. 从机器上报的库存里选择目标磁盘和网卡。根文件系统镜像可在分区表里增删分区（勾选「使用剩余空间」）；整盘云镜像会保留镜像自带分区，并在写盘后把根分区扩到整盘。网卡可选 DHCP / 静态，也可添加 Bond 和 VLAN（VLAN 可以建在 Bond 上）。物理网卡按 **MAC** 写入，装完后名字是 `nic0` / `nic1`，不沿用 RAMOS（Ubuntu live）里的 `ens3` / `enp1s0`。
 
-有 BMC 可在最后一步点「同时 BMC PXE 重启」。到「任务」看进度和日志。成功后机器会切回本地磁盘重启。
+有 BMC 可在最后一步点「同时 BMC PXE 重启」。到「任务」看进度和日志。成功后机器会切回本地磁盘重启。任务卡在「等待 PXE」或一直 pending 时，可在任务页直接删除；删掉后该 MAC 不再进 WinPE，机器状态回到就绪，然后可以重新下发。
 
 ### 10.4 没有 PXE 时的调试
 
@@ -893,8 +893,11 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 **Windows PE 一进就重启**  
 官方 ISO 的 `boot.wim` 会启动 Windows 安装程序；找不到光盘就会立刻重启。请用 **v0.4.32+** 的 `rackauto`（不必重跑 bootstrap），任务仍在等待 WinPE 时再 PXE 一次。成功时任务日志里应很快出现 `winpe_started`。
 
+**任务卡死（一直 pending / 等待 PXE / installing 不结束）**  
+到「任务」页点删除。任何状态都可以删。删掉 pending/running 的 Windows 任务后，该 MAC 下次 PXE 不再进 WinPE；机器若还停在 installing/stressing 且没有别的进行中任务，会回到 ready。然后重新下发即可。请用 **v0.4.34+**。
+
 **Windows PE 停在命令行，任务一直「等待 PXE 进入 Windows PE」**  
-wimboot 只能把文件注到 `X:\Windows\System32`（文件名不能带路径）。旧版把 `startnet.cmd` 写错位置，PE 只跑了自带的 `wpeinit`，装机脚本没启动。请换成 **v0.4.32+** 后再 PXE。若已经停在 `X:\Windows\System32>`，可先执行 `install.cmd` 应急（仍建议升级后重来，旧脚本会去找 `X:\diskpart.txt`）。
+wimboot 只能把文件注到 `X:\Windows\System32`（文件名不能带路径）。旧版把 `startnet.cmd` 写错位置，PE 只跑了自带的 `wpeinit`，装机脚本没启动。请换成 **v0.4.32+** 后再 PXE。若已经停在 `X:\Windows\System32>`，可先执行 `install.cmd` 应急（仍建议升级后重来，旧脚本会去找 `X:\diskpart.txt`）。任务已经废了就先在网页里删掉再重发。
 
 **Windows PE 起来了但 install.wim 下不下来**  
 `public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 用 `certutil`（或偶有的 curl）走 HTTP 拉 `/images/win/<id>/install.wim`。装机网必须有 DHCP（静态 IP 只在装完后生效）。

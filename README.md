@@ -154,6 +154,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | POST | `/api/v1/images/{id}/inspect` | 检测已上传镜像的分区表和引导 |
 | POST | `/api/v1/jobs/install` | 装机任务 |
 | POST | `/api/v1/jobs/stress` | 压测任务 |
+| DELETE | `/api/v1/jobs/{id}` | 删除任务（含卡死的 pending/running，解除 WinPE 绑定） |
 | GET | `/api/v1/nics` | 控制面主机网卡 |
 | POST | `/api/v1/dhcp/apply` | 保存并应用 DHCP（含接入网卡） |
 | POST | `/api/v1/dhcp/stop` | 停止内置 DHCP |
