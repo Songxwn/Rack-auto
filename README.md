@@ -51,6 +51,31 @@ install -m 0755 rackauto-agent-linux-amd64 data/agent/x86_64/rackauto-agent 2>/d
 
 更完整的 `/opt/rackauto` 安装见 [docs/deploy.md](docs/deploy.md#4-安装控制面)。
 
+### 升级（覆盖二进制）
+
+不要 `go build`。到 [Releases](https://github.com/Songxwn/Rack-auto/releases/latest) 下载对应包，**覆盖**控制面和 Agent 两个文件后重启：
+
+```bash
+# systemd 安装在 /opt/rackauto 时；ARM 把 amd64 换成 arm64
+cd /tmp
+curl -fLO https://github.com/Songxwn/Rack-auto/releases/latest/download/rackauto-linux-amd64.tar.gz
+tar -tzf rackauto-linux-amd64.tar.gz
+tar -xzf rackauto-linux-amd64.tar.gz
+CTRL=
+AGENT=
+[ -f rackauto ] && CTRL=rackauto
+[ -z "$CTRL" ] && [ -f rackauto-linux-amd64 ] && CTRL=rackauto-linux-amd64
+[ -f rackauto-agent ] && AGENT=rackauto-agent
+[ -z "$AGENT" ] && [ -f rackauto-agent-linux-amd64 ] && AGENT=rackauto-agent-linux-amd64
+sudo systemctl stop rackauto
+sudo install -m 0755 "$CTRL" /opt/rackauto/bin/rackauto
+sudo install -m 0755 "$AGENT" /opt/rackauto/data/agent/x86_64/rackauto-agent
+sudo systemctl start rackauto
+curl -sS http://127.0.0.1:8080/api/v1/health
+```
+
+配置、数据库、镜像、ISO 都不要动。两个二进制都要换；已在 RAMOS 里的机器需重新 PXE 才能拿到新 Agent。逐步说明（含文件名带平台后缀的旧包、ARM、Docker）见 [升级教程](docs/deploy.md#11-升级控制面下载二进制覆盖)。
+
 ### 2. 写一份配置
 
 ```bash
@@ -107,7 +132,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 ## 长期运行
 
 - systemd 单元示例：[deploy/rackauto.service](deploy/rackauto.service)
-- Docker（host 网络）：先 `cp configs/rackauto.example.yaml configs/rackauto.yaml` 并改好 `public_url`，再 `cd deploy && docker compose up -d --build`，然后在容器里跑一次 `bootstrap`。细节在 [Docker 部署](docs/deploy.md#11-docker-部署)。
+- Docker（host 网络）：先 `cp configs/rackauto.example.yaml configs/rackauto.yaml` 并改好 `public_url`，再 `cd deploy && docker compose up -d --build`，然后在容器里跑一次 `bootstrap`。细节在 [Docker 部署](docs/deploy.md#12-docker-部署)。
 
 ## API 摘要
 

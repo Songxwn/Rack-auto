@@ -16,9 +16,10 @@
 8. [配置 DHCP](#8-配置-dhcp)
 9. [第一次装机](#9-第一次装机)
 10. [用 systemd 长期跑](#10-用-systemd-长期跑)
-11. [Docker 部署](#11-docker-部署)
-12. [自检清单](#12-自检清单)
-13. [常见问题](#13-常见问题)
+11. [升级控制面（下载二进制覆盖）](#11-升级控制面下载二进制覆盖)
+12. [Docker 部署](#12-docker-部署)
+13. [自检清单](#13-自检清单)
+14. [常见问题](#14-常见问题)
 
 ---
 
@@ -116,6 +117,8 @@ ARM 控制面把 `amd64` 换成 `arm64`，Agent 目录用 `data/agent/aarch64/`�
 
 若还要给 ARM 服务器装机，再下一份 `rackauto-linux-arm64.tar.gz`，把其中的 Agent 放到 `data/agent/aarch64/rackauto-agent`。
 
+以后升级不要重装目录，按 [第 11 节](#11-升级控制面下载二进制覆盖) 下载新包、覆盖这两个文件即可。
+
 ### B. 从源码编译（可选）
 
 只在你要改代码时才需要。必须是 **Go 1.25 工具链**。本机若是 Go 1.26 且报 `nfcSparseValues`，说明安装不完整，用下面的 `GOTOOLCHAIN` 即可，不必先修好 GOROOT。
@@ -138,7 +141,7 @@ go build -o bin/rackauto-agent ./cmd/rackauto-agent
 
 ### C. Docker
 
-见 [第 11 节](#11-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 Ubuntu live-server ISO。
+见 [第 12 节](#12-docker-部署)。镜像里已经带好 Linux Agent，仍需要执行一次 `bootstrap` 下载 Ubuntu live-server ISO。
 
 ---
 
@@ -385,7 +388,110 @@ sudo journalctl -u rackauto -f
 
 ---
 
-## 11. Docker 部署
+## 11. 升级控制面（下载二进制覆盖）
+
+升级 = **下载 GitHub Release → 覆盖两个二进制 → 重启进程**。不要在控制面 `go build`，也不要重装整个 `/opt/rackauto`。
+
+配置、数据库、已上传镜像、RAMOS 的 ISO / `casper.iso` **都不要动**。SQLite 打开后会自己加列。
+
+### 要覆盖哪两个文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `rackauto` | 控制面本身（Web、API、PXE、DHCP） |
+| `rackauto-agent` | 机器 PXE 进 RAMOS 之后从控制面下载的 Agent |
+
+**两个都要换。** 只换控制面时，网页版本号会变，装机仍走旧 Agent（例如仍会覆盖镜像自带的 fstab）。已停在 RAMOS 里的机器要**重新 PXE**，才会下载到新 Agent。
+
+默认安装路径：
+
+```text
+/opt/rackauto/bin/rackauto
+/opt/rackauto/data/agent/x86_64/rackauto-agent
+```
+
+ARM 控制面或 ARM 待装机服务器：Agent 在 `data/agent/aarch64/rackauto-agent`。若两种架构都要装，两份 Agent 都覆盖。
+
+按 [README 最短路径](../README.md) 装在仓库目录时，对应的是 `bin/rackauto` 和 `data/agent/<arch>/rackauto-agent`。
+
+### systemd（推荐）
+
+在**控制面 Linux**上执行。把包名里的 `amd64` 换成你的架构（ARM 控制面用 `arm64`）。
+
+```bash
+# 1. 看现在跑的是哪一版（网页左下角也会显示）
+curl -sS http://127.0.0.1:8080/api/v1/health
+# 期望类似：{"ok":true,"name":"rackauto","version":"v0.4.10"}
+
+# 2. 下载最新包（钉死版本则把 latest 换成 download/v0.4.10）
+cd /tmp
+curl -fLO https://github.com/Songxwn/Rack-auto/releases/latest/download/rackauto-linux-amd64.tar.gz
+tar -tzf rackauto-linux-amd64.tar.gz
+tar -xzf rackauto-linux-amd64.tar.gz
+
+CTRL=
+AGENT=
+[ -f rackauto ] && CTRL=rackauto
+[ -z "$CTRL" ] && [ -f rackauto-linux-amd64 ] && CTRL=rackauto-linux-amd64
+[ -f rackauto-agent ] && AGENT=rackauto-agent
+[ -z "$AGENT" ] && [ -f rackauto-agent-linux-amd64 ] && AGENT=rackauto-agent-linux-amd64
+if [ -z "$CTRL" ] || [ -z "$AGENT" ]; then
+  echo "解压后没有找到二进制，请看 tar -tzf 的输出"; ls -l; exit 1
+fi
+
+# 3. 停服务，覆盖，再启动（不要动 configs/ 和 data/）
+sudo systemctl stop rackauto
+sudo install -m 0755 "$CTRL" /opt/rackauto/bin/rackauto
+sudo install -m 0755 "$AGENT" /opt/rackauto/data/agent/x86_64/rackauto-agent
+# 若还要给 ARM 机器装机，再解压 arm64 包：
+# sudo install -m 0755 rackauto-agent /opt/rackauto/data/agent/aarch64/rackauto-agent
+sudo systemctl start rackauto
+sudo systemctl status rackauto --no-pager
+
+# 4. 确认版本号已经变了
+curl -sS http://127.0.0.1:8080/api/v1/health
+```
+
+`install` 是覆盖目标路径上的文件，不会新建一套目录。正在跑的进程用的是内存里的旧映像，所以**覆盖后必须重启**。
+
+没有 systemd、前台跑的：先停掉 `rackauto serve`（Ctrl+C 或 `kill`），按同样方式 `install` 覆盖，再：
+
+```bash
+sudo /opt/rackauto/bin/rackauto serve \
+  -config /opt/rackauto/configs/rackauto.yaml \
+  -data-dir /opt/rackauto/data
+```
+
+### 升级之后还要不要 bootstrap
+
+一般**不用**。`data/ramos/`、`data/tftp/`、已上传镜像都还在。
+
+发行说明里若写了「必须再跑 bootstrap」（例如换成 `casper.iso` 那种引导方式），再执行一次即可：已有完整 ISO 不会重下。
+
+### 机器侧
+
+1. 浏览器强刷控制台，左下角版本应等于新 tag。
+2. 下一次装机前让节点重新 PXE（网页里 PXE 引导，或 BMC 下次启动改网卡）。已经停在旧 RAMOS 里的 Agent 不会自动热更新。
+3. 打开「镜像」页：v0.4.10 起会检测已上传镜像的分区表和引导。
+
+### Docker
+
+Compose 不是「覆盖宿主机两个文件」，而是更新镜像后重建容器。数据在 volume 里，配置仍是挂进去的 `configs/rackauto.yaml`：
+
+```bash
+cd /path/to/Rack-auto
+git fetch --tags
+git checkout v0.4.10   # 或 git pull 跟 main
+cd deploy
+docker compose up -d --build
+curl -sS http://127.0.0.1:8080/api/v1/health
+```
+
+不要在 Windows 宿主机上 `go build`。构建发生在 Docker 里。
+
+---
+
+## 12. Docker 部署
 
 Compose 使用 `network_mode: host`，这样 DHCP/TFTP 才能绑网卡。请先在仓库根目录准备好配置：
 
@@ -401,7 +507,7 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 ---
 
-## 12. 自检清单
+## 13. 自检清单
 
 按顺序打勾，卡在哪一步就去下一节对号入座。
 
@@ -417,7 +523,10 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 
 ---
 
-## 13. 常见问题
+## 14. 常见问题
+
+**如何升级到新版本**  
+不要重装、不要编译。按 [第 11 节](#11-升级控制面下载二进制覆盖) 下载 Release，覆盖 `rackauto` 和 `rackauto-agent`，重启控制面。只换其中一个，装机行为不会完整更新。
 
 **`go build` 失败 / undefined: nfcSparseValues / 找不到 bin/rackauto**  
 生产环境请用 Release，不要编译。若一定要编：
