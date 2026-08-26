@@ -445,7 +445,7 @@ Windows Server **不能**走 RAMOS / qcow2 / cloud-init。下发任务后，该�
 3. 点「检测」：应看到 WIM 版本列表（Standard / Datacenter，Core 或带桌面）。
 4. 也可以先传一张同代 ISO 抽出 WinPE，再单独登记 `install.wim` / `install.esd`（类型 **Windows install.wim / ESD**）；没有 `boot.wim` 时会尝试借用已有 ISO 抽出的 WinPE。
 
-只支持 **x86_64**。官方 WinPE **没有** `curl.exe`。装机脚本会优先用 curl（若你自己打进 PE），否则用自带的 `certutil`，再不行试 `bitsadmin`。
+只支持 **x86_64**。官方 WinPE **没有** `curl.exe`，PowerShell 也通常没打进 `boot.wim`（ADK 里是可选组件）。装机脚本下载顺序：curl（若你自己打进 PE）→ `certutil` → `bitsadmin` → 若存在 `powershell.exe` 则 `Invoke-WebRequest -UseBasicParsing`（PE 没有 IE，必须加这个参数）。官方 ISO 多数只能走到 certutil。
 
 **向导差异**
 
@@ -900,10 +900,10 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 wimboot 只能把文件注到 `X:\Windows\System32`（文件名不能带路径）。旧版把 `startnet.cmd` 写错位置，PE 只跑了自带的 `wpeinit`，装机脚本没启动。请换成 **v0.4.32+** 后再 PXE。若已经停在 `X:\Windows\System32>`，可先执行 `install.cmd` 应急（仍建议升级后重来，旧脚本会去找 `X:\diskpart.txt`）。任务已经废了就先在网页里删掉再重发。
 
 **Windows PE 起来了但 install.wim 下不下来**  
-`public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 用 `certutil`（或偶有的 curl）走 HTTP 拉 `/images/win/<id>/install.wim`。装机网必须有 DHCP（静态 IP 只在装完后生效）。
+`public_url` 对 PXE 网不可达，或 ISO 没有在控制面本地。WinPE 走 HTTP 拉 `/images/win/<id>/install.wim`：curl → certutil → bitsadmin → PowerShell `Invoke-WebRequest`（仅当 PE 里有 `powershell.exe`）。装机网必须有 DHCP（静态 IP 只在装完后生效）。
 
 **Windows PE 报 `'curl.exe' 不是内部或外部命令`**  
-这是官方 boot.wim 的正常情况。请用 **v0.4.33+** 的 `rackauto` 再 PXE，下载会改走 `certutil`。
+这是官方 boot.wim 的正常情况。请用 **v0.4.33+** 的 `rackauto` 再 PXE，下载会改走 `certutil`；**v0.4.35+** 在 certutil/bitsadmin 都没有时，若 PE 带了 PowerShell 会再用 `Invoke-WebRequest -UseBasicParsing`。官方 ISO 一般没有 PowerShell，不能指望这条。
 
 **Windows 装完进不了系统 / 停在 bootmgr**  
 向导固件必须和机器一致（UEFI 用 GPT + EFI 分区，BIOS 用 MBR）。看任务是否已经 `bcdboot` 成功。Secure Boot 一般可开（官方 ISO 的 WinPE/Windows 有签名）；若定制 boot.wim 被破坏则先关 Secure Boot。
