@@ -568,12 +568,23 @@ func (s *Server) setBoot(w http.ResponseWriter, r *http.Request) {
 		if err := ctl.SetBoot(r.Context(), req.Device, fw, req.Persistent); err != nil {
 			return err
 		}
-		mode := model.BootPXE
-		if req.Device == "disk" || req.Device == "hdd" {
+		mode := model.BootRAM
+		switch strings.ToLower(req.Device) {
+		case "disk", "hdd":
 			mode = model.BootDisk
+		case "pxe", "network":
+			if req.Persistent {
+				mode = model.BootPXE
+			} else {
+				mode = model.BootRAM
+			}
 		}
 		_ = s.Store.SetBootMode(m.ID, mode)
-		s.Store.AddEvent("info", "BMC 引导 "+req.Device+"/"+fw+" → "+m.Name, m.ID)
+		once := "一次性"
+		if req.Persistent {
+			once = "持久"
+		}
+		s.Store.AddEvent("info", "BMC 引导 "+req.Device+"/"+fw+"（"+once+"）→ "+m.Name, m.ID)
 		writeJSON(w, 200, map[string]any{"ok": true})
 		return nil
 	})

@@ -270,7 +270,7 @@ async function machineDetail(id) {
       <button id="md-detect">${t("m.detectHw")}</button>
       <button id="ed">${t("m.editBmc")}</button>
       <button id="pxe">${t("m.pxeBoot")}</button>
-      <button id="disk">${t("m.nextDisk")}</button>
+      <button id="next-pxe" title="${t("m.nextPXEHint")}">${t("m.nextPXE")}</button>
       <button class="danger" id="md-del">${t("m.del")}</button>
     </div>
     <h4>${t("m.server")}</h4>
@@ -292,9 +292,14 @@ async function machineDetail(id) {
   };
   $("#ed").onclick = () => machineForm(m);
   $("#pxe").onclick = async () => { await api(`/machines/${id}/pxe-install`, { method: "POST" }); closeModal(); };
-  $("#disk").onclick = async () => {
-    await api(`/machines/${id}/boot`, { method: "POST", body: JSON.stringify({ device: "disk", firmware: m.firmware, persistent: true }) });
-    closeModal();
+  $("#next-pxe").onclick = async () => {
+    try {
+      await api(`/machines/${id}/boot`, {
+        method: "POST",
+        body: JSON.stringify({ device: "pxe", firmware: m.firmware || "uefi", persistent: false }),
+      });
+      closeModal();
+    } catch (e) { alert(e.message); }
   };
   $("#md-del").onclick = async () => {
     try { await removeMachine(id, m.name || m.mac || id); }
