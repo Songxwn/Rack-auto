@@ -379,7 +379,7 @@ func windowsNetworkXML(netcfg model.NetConfig, pxeMAC string) (tcp, dns string) 
 			continue
 		}
 		n++
-		ip, prefix := splitCIDR(nic.Address)
+		ip, prefix := splitHostCIDR(nic.Address)
 		if ip == "" {
 			continue
 		}
@@ -456,7 +456,7 @@ func windowsMACIdent(mac, fallback string, n int) string {
 	return mac
 }
 
-func splitCIDR(addr string) (ip, prefix string) {
+func splitHostCIDR(addr string) (ip, prefix string) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
 		return "", "24"

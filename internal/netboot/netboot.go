@@ -319,7 +319,6 @@ initrd ${base}/ipxe/windows/%s/fail.json fail.json
 boot
 `, job.ID, base, boot, mac, mac, mac, mac, mac, mac)
 }
-}
 
 func (s *Service) layerFSPath(archDir string) string {
 	const fallback = "ubuntu-server-minimal.ubuntu-server.installer.generic.squashfs"

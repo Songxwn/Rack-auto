@@ -228,7 +228,8 @@ func looksUTF16LE(b []byte) bool {
 }
 
 type wimXMLRoot struct {
-	Images []wimXMLImage `xml:"IMAGE"`
+	XMLName xml.Name     `xml:"WIM"`
+	Images  []wimXMLImage `xml:"IMAGE"`
 }
 
 type wimXMLImage struct {
