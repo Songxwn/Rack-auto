@@ -227,7 +227,7 @@ const DICT = {
   "in.kmsKeyHint": ["微软公开的 Volume GVLK（2019–2025）。按 WIM edition 预选；首次进桌面后用 slmgr /ipk 写入。", "Official Microsoft volume GVLKs (2019–2025). Preselected from the WIM edition; written with slmgr /ipk after first desktop logon."],
   "in.kmsHost": ["KMS 主机（可选）", "KMS host (optional)"],
   "in.kmsHostPh": ["kms.songxwn.com", "kms.songxwn.com"],
-  "in.kmsHostHint": ["可选。填了会在首次进桌面、等网络后再 slmgr /skms 与 /ato；选内置 GVLK 时会预填 kms.songxwn.com。", "Optional. After first desktop logon and network is up, runs slmgr /skms and /ato. Choosing a GVLK prefills kms.songxwn.com."],
+  "in.kmsHostHint": ["可选。填了会在首次进桌面后立刻 slmgr /skms 与 /ato；选内置 GVLK 时会预填 kms.songxwn.com。", "Optional. Right after first desktop logon, runs slmgr /skms and /ato. Choosing a GVLK prefills kms.songxwn.com."],
   "in.rmDefender": ["删除 Microsoft Defender", "Remove Microsoft Defender"],
   "in.rmDefenderHint": ["默认不删除。勾选后首次登录卸载 Windows-Defender 功能（可能需要再重启一次）。", "Off by default. When checked, uninstalls Windows-Defender at first logon (may need another reboot)."],
   "in.disk": ["目标磁盘", "Target disk"],

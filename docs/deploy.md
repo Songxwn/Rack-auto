@@ -453,7 +453,7 @@ Windows Server **不能**走 RAMOS / qcow2 / cloud-init。下发任务后，该�
 - 登录用户默认 `Administrator`，**密码必填**（写入应答文件）。没有 SSH 公钥。
 - 第 3 步选 WIM edition（默认偏向 Standard 带桌面，而不是 Core）、产品密钥、目标磁盘、DHCP 或静态 IP。
 - 产品密钥三选一：**不填（评估版）**、**手动填写**、或选微软公开的 **KMS 客户端密钥 (GVLK)**（2019 / 2022 / 2025 的 Standard / Datacenter / Essentials / Azure）。
-- **KMS 主机**可选，默认占位 `kms.songxwn.com`；填写后**首次进入桌面**会等网络就绪，再执行 `slmgr /ipk`、`/skms`、`/ato`（DISM 装机不会走 Setup 的 windowsPE，应答文件里的 ProductKey 无效）。
+- **KMS 主机**可选，默认占位 `kms.songxwn.com`；填写后**首次进入桌面**立即执行 `slmgr /ipk`、`/skms`、`/ato`（DISM 装机不会走 Setup 的 windowsPE，应答文件里的 ProductKey 无效）。
 - **删除 Microsoft Defender** 默认关闭；勾选后首次登录卸载 Defender 功能。
 - **不要**画 Linux 分区，也 **不要** 配 Bond / VLAN。
 - 主机名最长 15 个 ASCII 字符。时区 `Asia/Shanghai` 会写成 `China Standard Time`。应答文件语言保持 **en-US**，避免英文 ISO 被强行 zh-CN 后安装器卡住。

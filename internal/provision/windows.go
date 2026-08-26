@@ -416,14 +416,6 @@ func buildFirstLogonCommands(spec model.InstallSpec) string {
 	)
 	key := sanitizeProductKey(EffectiveProductKey(spec))
 	host := sanitizeKMSHost(spec.KMSHost)
-	if key != "" || host != "" {
-		waitHost := host
-		if waitHost == "" {
-			waitHost = "8.8.8.8"
-		}
-		// Wait until the desktop session has network before touching licensing.
-		cmds = append(cmds, `cmd.exe /c powershell.exe -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 90;$i++){ try { if(Test-Connection -ComputerName '`+waitHost+`' -Count 1 -Quiet){ exit 0 } } catch {}; Start-Sleep -Seconds 2 }; exit 0"`)
-	}
 	if key != "" {
 		cmds = append(cmds, `cmd.exe /c cscript //B %SystemRoot%\System32\slmgr.vbs /ipk `+key)
 	}

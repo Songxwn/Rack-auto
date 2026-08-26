@@ -53,12 +53,14 @@ func TestUnattendKMSAndDefender(t *testing.T) {
 		"slmgr.vbs /ipk WX4NM-KYWYW-QJJR4-XV3QB-6VM33",
 		"slmgr.vbs /skms kms.songxwn.com",
 		"slmgr.vbs /ato",
-		"Test-Connection",
 		"Uninstall-WindowsFeature -Name Windows-Defender",
 	} {
 		if !strings.Contains(xml, want) {
 			t.Fatalf("missing %q in unattend:\n%s", want, xml)
 		}
+	}
+	if strings.Contains(xml, "Test-Connection") {
+		t.Fatal("must not wait for network before activation")
 	}
 	if strings.Contains(xml, "<Key>WX4NM-KYWYW-QJJR4-XV3QB-6VM33</Key>") {
 		t.Fatal("GVLK must not go into windowsPE ProductKey (DISM skips that pass)")
