@@ -136,6 +136,7 @@ func Main(args []string) int {
 		return 2
 	}
 	var last error
+	var lastCode int
 	tries := o.retries + 1
 	for n := 0; n < tries; n++ {
 		if n > 0 {
@@ -146,9 +147,13 @@ func Main(args []string) int {
 			return code
 		}
 		last = err
+		lastCode = code
 		fmt.Fprintln(os.Stderr, "winpe-curl:", err)
 	}
 	if last != nil {
+		if lastCode != 0 {
+			return lastCode
+		}
 		return 1
 	}
 	return 0
