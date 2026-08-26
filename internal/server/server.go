@@ -28,6 +28,7 @@ type Server struct {
 	Cfg     config.Config
 	Store   *store.Store
 	Netboot *netboot.Service
+	Version string
 }
 
 func New(cfg config.Config, st *store.Store, nb *netboot.Service) *Server {
@@ -158,7 +159,11 @@ func readJSON(r *http.Request, v any) error {
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"ok": true, "name": "rackauto"})
+	ver := s.Version
+	if ver == "" {
+		ver = "dev"
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "name": "rackauto", "version": ver})
 }
 
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
@@ -350,10 +355,24 @@ func (s *Server) updateMachine(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteMachine(w http.ResponseWriter, r *http.Request) {
-	if err := s.Store.DeleteMachine(r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	m, err := s.Store.GetMachine(id)
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	if err := s.Store.DeleteMachine(id); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	name := m.Name
+	if name == "" {
+		name = m.MAC
+	}
+	if name == "" {
+		name = id
+	}
+	s.Store.AddEvent("info", "删除机器 "+name, id)
 	w.WriteHeader(204)
 }
 

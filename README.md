@@ -113,7 +113,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/health` | 健康检查 |
+| GET | `/api/v1/health` | 健康检查（含 `version`） |
 | CRUD | `/api/v1/machines` | 机器与 BMC |
 | POST | `/api/v1/machines/{id}/power` | `on/off/cycle/reset/soft` |
 | POST | `/api/v1/machines/{id}/boot` | PXE/磁盘/光盘，BIOS 或 UEFI |

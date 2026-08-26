@@ -147,6 +147,7 @@ nav button.active .idx { opacity: 1; }
   gap: 4px;
 }
 .aside-sys span:first-child { color: var(--cyan); opacity: 0.8; }
+#ctrl-ver { color: var(--amber); letter-spacing: 0.12em; }
 .aside-foot {
   font-size: 11px;
   color: var(--muted);
@@ -193,7 +194,7 @@ header h1 {
 }
 .toolbar { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
 .toolbar input { width: 168px; }
-.clock {
+.clock, .ver {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--cyan);
@@ -203,6 +204,7 @@ header h1 {
   background: rgba(0, 0, 0, 0.35);
   white-space: nowrap;
 }
+.ver { color: var(--amber); }
 #view { padding: 22px 28px 48px; overflow: auto; }
 #view.in { animation: rise .28s ease; }
 @keyframes rise {

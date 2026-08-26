@@ -257,6 +257,9 @@ func (s *Store) GetMachineByMAC(mac string) (model.Machine, error) {
 func (s *Store) DeleteMachine(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, err := s.db.Exec(`DELETE FROM jobs WHERE machine_id=?`, id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`DELETE FROM machines WHERE id=?`, id)
 	return err
 }

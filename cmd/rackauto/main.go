@@ -90,6 +90,7 @@ func main() {
 	}
 
 	srv := server.New(cfg, st, nb)
+	srv.Version = Version
 	httpSrv := &http.Server{Addr: cfg.Listen, Handler: srv.Handler(), ReadHeaderTimeout: 15 * time.Second}
 	go func() {
 		log.Printf("控制台 http://%s  版本 %s", displayAddr(cfg.Listen), Version)

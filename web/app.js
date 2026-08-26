@@ -66,6 +66,7 @@ async function load() {
     ]);
     cache = { overview, machines, images, jobs, events };
     setHealth(health.ok, health.ok ? "CTRL // ONLINE" : "CTRL // OFFLINE");
+    if (health.version) setVersion(health.version);
   } catch (e) {
     setHealth(false, "CTRL // NO LINK");
   }
@@ -77,6 +78,25 @@ function setHealth(ok, text) {
   if (!led) return;
   led.classList.toggle("on", !!ok);
   led.classList.toggle("off", !ok);
+}
+
+function setVersion(v) {
+  const t = (v && String(v).trim()) || "dev";
+  const side = $("#ctrl-ver");
+  const head = $("#app-ver");
+  if (side) side.textContent = t;
+  if (head) head.textContent = t;
+  document.title = "Rack-auto " + t + " · 裸金属装机";
+}
+
+async function removeMachine(id, label) {
+  const name = label || id;
+  if (!confirm("删除机器「" + name + "」？其任务记录也会一并删除。")) return false;
+  await api("/machines/" + id, { method: "DELETE" });
+  closeModal();
+  await load();
+  render();
+  return true;
 }
 
 function render() {
@@ -130,6 +150,7 @@ function renderMachines() {
               <button data-act="on" data-id="${m.id}">开机</button>
               <button data-act="off" data-id="${m.id}">关机</button>
               <button data-act="cycle" data-id="${m.id}">重启</button>
+              <button class="danger" data-act="delete" data-id="${m.id}" data-name="${escapeHtml(m.name || m.mac || m.id)}">删除</button>
             </td>
           </tr>`).join("") : `<tr><td colspan="7" class="empty">NO NODES · 尚未登记机器</td></tr>`}
         </tbody>
@@ -142,6 +163,10 @@ function renderMachines() {
     const id = b.dataset.id;
     try {
       if (b.dataset.act === "detail") return machineDetail(id);
+      if (b.dataset.act === "delete") {
+        await removeMachine(id, b.dataset.name || id);
+        return;
+      }
       if (b.dataset.act === "pxe") await api(`/machines/${id}/pxe-install`, { method: "POST" });
       else await api(`/machines/${id}/power`, { method: "POST", body: JSON.stringify({ action: b.dataset.act }) });
       await load(); render();
@@ -192,9 +217,8 @@ function machineForm(m = {}) {
   };
   const del = $("#f-del");
   if (del) del.onclick = async () => {
-    if (!confirm("删除这台机器？")) return;
-    await api("/machines/" + m.id, { method: "DELETE" });
-    closeModal(); await load(); render();
+    try { await removeMachine(m.id, m.name || m.mac || m.id); }
+    catch (e) { alert(e.message); }
   };
 }
 
@@ -209,6 +233,7 @@ async function machineDetail(id) {
       <button id="ed">编辑 BMC</button>
       <button id="pxe">PXE 引导并重启</button>
       <button id="disk">下次从磁盘启动</button>
+      <button class="danger" id="md-del">删除机器</button>
     </div>
     <h4>CPU / 内存</h4>
     <div class="hint">${escapeHtml(inv.cpu_model || "")} · ${inv.cpus || 0} 核 · ${inv.memory_mb || 0} MB · ${escapeHtml(inv.firmware || "")}</div>
@@ -222,6 +247,10 @@ async function machineDetail(id) {
   $("#disk").onclick = async () => {
     await api(`/machines/${id}/boot`, { method: "POST", body: JSON.stringify({ device: "disk", firmware: m.firmware, persistent: true }) });
     closeModal();
+  };
+  $("#md-del").onclick = async () => {
+    try { await removeMachine(id, m.name || m.mac || id); }
+    catch (e) { alert(e.message); }
   };
 }
 
