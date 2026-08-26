@@ -350,28 +350,28 @@ function wireOsSelects() {
 
 const OS_CATALOG = [
   { family: "ubuntu", label: "Ubuntu", versions: [
-    { id: "20.04", label: "20.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
-    { id: "22.04", label: "22.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
-    { id: "24.04", label: "24.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
-    { id: "26.04", label: "26.04 LTS", default_user: "ubuntu", root_fs: "ext4", net_backend: "netplan" },
+    { id: "20.04", label: "20.04 LTS", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
+    { id: "22.04", label: "22.04 LTS", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
+    { id: "24.04", label: "24.04 LTS", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
+    { id: "26.04", label: "26.04 LTS", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
   ]},
   { family: "debian", label: "Debian", versions: [
-    { id: "11", label: "11 (bullseye)", default_user: "debian", root_fs: "ext4", net_backend: "ifupdown" },
-    { id: "12", label: "12 (bookworm)", default_user: "debian", root_fs: "ext4", net_backend: "ifupdown" },
-    { id: "13", label: "13 (trixie)", default_user: "debian", root_fs: "ext4", net_backend: "netplan" },
+    { id: "11", label: "11 (bullseye)", default_user: "root", root_fs: "ext4", net_backend: "ifupdown" },
+    { id: "12", label: "12 (bookworm)", default_user: "root", root_fs: "ext4", net_backend: "ifupdown" },
+    { id: "13", label: "13 (trixie)", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
   ]},
   { family: "rocky", label: "Rocky Linux", versions: [
-    { id: "8", label: "8", default_user: "rocky", root_fs: "xfs", net_backend: "ifcfg" },
-    { id: "9", label: "9", default_user: "rocky", root_fs: "xfs", net_backend: "nm" },
-    { id: "10", label: "10", default_user: "rocky", root_fs: "xfs", net_backend: "nm" },
+    { id: "8", label: "8", default_user: "root", root_fs: "xfs", net_backend: "ifcfg" },
+    { id: "9", label: "9", default_user: "root", root_fs: "xfs", net_backend: "nm" },
+    { id: "10", label: "10", default_user: "root", root_fs: "xfs", net_backend: "nm" },
   ]},
   { family: "alma", label: "AlmaLinux", versions: [
-    { id: "8", label: "8", default_user: "almalinux", root_fs: "xfs", net_backend: "ifcfg" },
-    { id: "9", label: "9", default_user: "almalinux", root_fs: "xfs", net_backend: "nm" },
+    { id: "8", label: "8", default_user: "root", root_fs: "xfs", net_backend: "ifcfg" },
+    { id: "9", label: "9", default_user: "root", root_fs: "xfs", net_backend: "nm" },
   ]},
   { family: "centos", label: "CentOS", versions: [
-    { id: "7", label: "7", default_user: "centos", root_fs: "ext4", net_backend: "ifcfg" },
-    { id: "9", label: "Stream 9", default_user: "centos", root_fs: "xfs", net_backend: "nm" },
+    { id: "7", label: "7", default_user: "root", root_fs: "ext4", net_backend: "ifcfg" },
+    { id: "9", label: "Stream 9", default_user: "root", root_fs: "xfs", net_backend: "nm" },
   ]},
   { family: "custom", label: "自定义", versions: [
     { id: "generic", label: "generic", default_user: "root", root_fs: "ext4", net_backend: "netplan" },
@@ -385,7 +385,7 @@ const BOND_MODES = [
   ["balance-xor", "balance-xor"],
   ["balance-rr", "balance-rr"],
 ];
-const USER_PRESETS = ["ubuntu", "debian", "rocky", "almalinux", "centos", "root"];
+const USER_PRESETS = ["root", "ubuntu", "debian", "rocky", "almalinux", "centos"];
 const TIMEZONES = [
   "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore", "Asia/Tokyo", "Asia/Seoul",
   "UTC", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles",
@@ -449,7 +449,7 @@ function blankNic() {
 
 function blankInstallDraft() {
   return {
-    step: 1, machine_id: "", image_id: "", hostname: "", username: "ubuntu",
+    step: 1, machine_id: "", image_id: "", hostname: "", username: "root",
     password: "", timezone: "Asia/Shanghai", firmware: "uefi", disk: "", reboot: true,
     ssh_keys: [""], partitions: defaultParts("uefi", "ubuntu", "24.04"), nics: [blankNic()],
   };
@@ -792,7 +792,7 @@ function renderInstall() {
       <div class="row">
         <div><label>登录用户</label>
           <select id="in-user">
-            ${opts(USER_PRESETS, userKnown ? d.username : "ubuntu")}
+            ${opts(USER_PRESETS, userKnown ? d.username : "root")}
             <option value="__custom" ${userKnown ? "" : "selected"}>自定义…</option>
           </select>
           <input id="in-user-custom" class="${userKnown ? "hidden" : ""}" value="${userKnown ? "" : escapeHtml(d.username)}" placeholder="用户名" style="margin-top:8px">

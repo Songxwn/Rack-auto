@@ -6,14 +6,14 @@ func TestLookupBackends(t *testing.T) {
 	cases := []struct {
 		family, ver, net, fs, user string
 	}{
-		{"ubuntu", "24.04", Netplan, "ext4", "ubuntu"},
-		{"debian", "12", Ifupdown, "ext4", "debian"},
-		{"debian", "13", Netplan, "ext4", "debian"},
-		{"rocky", "8", Ifcfg, "xfs", "rocky"},
-		{"rocky", "9", NM, "xfs", "rocky"},
-		{"alma", "9", NM, "xfs", "almalinux"},
-		{"centos", "7", Ifcfg, "ext4", "centos"},
-		{"", "", Netplan, "ext4", "ubuntu"},
+		{"ubuntu", "24.04", Netplan, "ext4", "root"},
+		{"debian", "12", Ifupdown, "ext4", "root"},
+		{"debian", "13", Netplan, "ext4", "root"},
+		{"rocky", "8", Ifcfg, "xfs", "root"},
+		{"rocky", "9", NM, "xfs", "root"},
+		{"alma", "9", NM, "xfs", "root"},
+		{"centos", "7", Ifcfg, "ext4", "root"},
+		{"", "", Netplan, "ext4", "root"},
 	}
 	for _, c := range cases {
 		v := Lookup(c.family, c.ver)

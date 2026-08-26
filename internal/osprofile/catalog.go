@@ -26,28 +26,28 @@ type Distro struct {
 func Catalog() []Distro {
 	return []Distro{
 		{Family: "ubuntu", Label: "Ubuntu", Versions: []Version{
-			{ID: "20.04", Label: "20.04 LTS", DefaultUser: "ubuntu", RootFS: "ext4", NetBackend: Netplan},
-			{ID: "22.04", Label: "22.04 LTS", DefaultUser: "ubuntu", RootFS: "ext4", NetBackend: Netplan},
-			{ID: "24.04", Label: "24.04 LTS", DefaultUser: "ubuntu", RootFS: "ext4", NetBackend: Netplan},
-			{ID: "26.04", Label: "26.04 LTS", DefaultUser: "ubuntu", RootFS: "ext4", NetBackend: Netplan},
+			{ID: "20.04", Label: "20.04 LTS", DefaultUser: "root", RootFS: "ext4", NetBackend: Netplan},
+			{ID: "22.04", Label: "22.04 LTS", DefaultUser: "root", RootFS: "ext4", NetBackend: Netplan},
+			{ID: "24.04", Label: "24.04 LTS", DefaultUser: "root", RootFS: "ext4", NetBackend: Netplan},
+			{ID: "26.04", Label: "26.04 LTS", DefaultUser: "root", RootFS: "ext4", NetBackend: Netplan},
 		}},
 		{Family: "debian", Label: "Debian", Versions: []Version{
-			{ID: "11", Label: "11 (bullseye)", DefaultUser: "debian", RootFS: "ext4", NetBackend: Ifupdown},
-			{ID: "12", Label: "12 (bookworm)", DefaultUser: "debian", RootFS: "ext4", NetBackend: Ifupdown},
-			{ID: "13", Label: "13 (trixie)", DefaultUser: "debian", RootFS: "ext4", NetBackend: Netplan},
+			{ID: "11", Label: "11 (bullseye)", DefaultUser: "root", RootFS: "ext4", NetBackend: Ifupdown},
+			{ID: "12", Label: "12 (bookworm)", DefaultUser: "root", RootFS: "ext4", NetBackend: Ifupdown},
+			{ID: "13", Label: "13 (trixie)", DefaultUser: "root", RootFS: "ext4", NetBackend: Netplan},
 		}},
 		{Family: "rocky", Label: "Rocky Linux", Versions: []Version{
-			{ID: "8", Label: "8", DefaultUser: "rocky", RootFS: "xfs", NetBackend: Ifcfg},
-			{ID: "9", Label: "9", DefaultUser: "rocky", RootFS: "xfs", NetBackend: NM},
-			{ID: "10", Label: "10", DefaultUser: "rocky", RootFS: "xfs", NetBackend: NM},
+			{ID: "8", Label: "8", DefaultUser: "root", RootFS: "xfs", NetBackend: Ifcfg},
+			{ID: "9", Label: "9", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
+			{ID: "10", Label: "10", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
 		}},
 		{Family: "alma", Label: "AlmaLinux", Versions: []Version{
-			{ID: "8", Label: "8", DefaultUser: "almalinux", RootFS: "xfs", NetBackend: Ifcfg},
-			{ID: "9", Label: "9", DefaultUser: "almalinux", RootFS: "xfs", NetBackend: NM},
+			{ID: "8", Label: "8", DefaultUser: "root", RootFS: "xfs", NetBackend: Ifcfg},
+			{ID: "9", Label: "9", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
 		}},
 		{Family: "centos", Label: "CentOS", Versions: []Version{
-			{ID: "7", Label: "7", DefaultUser: "centos", RootFS: "ext4", NetBackend: Ifcfg},
-			{ID: "9", Label: "Stream 9", DefaultUser: "centos", RootFS: "xfs", NetBackend: NM},
+			{ID: "7", Label: "7", DefaultUser: "root", RootFS: "ext4", NetBackend: Ifcfg},
+			{ID: "9", Label: "Stream 9", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
 		}},
 		{Family: "custom", Label: "自定义", Versions: []Version{
 			{ID: "generic", Label: "generic", DefaultUser: "root", RootFS: "ext4", NetBackend: Netplan},

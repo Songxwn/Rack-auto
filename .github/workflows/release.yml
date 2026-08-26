@@ -19,12 +19,6 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -36,11 +30,9 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          EXT=""
-          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto${EXT} ./cmd/rackauto
-          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-agent${EXT} ./cmd/rackauto-agent
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto ./cmd/rackauto
+          go build -trimpath -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/rackauto-agent ./cmd/rackauto-agent
           (cd dist && sha256sum * > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
@@ -59,15 +51,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq zip
           mkdir -p release
           cd artifacts
           for d in *; do
-            if [ "${d}" = "rackauto-windows-amd64" ]; then
-              (cd "$d" && zip -r "../../release/${d}.zip" .)
-            else
-              tar -czf "../release/${d}.tar.gz" -C "$d" .
-            fi
+            tar -czf "../release/${d}.tar.gz" -C "$d" .
           done
           cd ..
           gh release create "${GITHUB_REF_NAME}" release/* --title "Rack-auto ${GITHUB_REF_NAME}" --generate-notes

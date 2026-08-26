@@ -173,7 +173,7 @@ go build -o bin/rackauto-agent ./cmd/rackauto-agent
 go test ./...
 ```
 
-GitHub Actions 在推送 `v*` 标签时用 Go 1.25 编译 linux / darwin / windows 并发布 Release。生产环境请用 Release，不要在控制面主机上编译。
+GitHub Actions 在推送 `v*` 标签时用 Go 1.25 编译 **linux amd64 / arm64** 并发布 Release（不编 Mac / Windows）。生产环境请用 Release，不要在控制面主机上编译。
 
 ## License
 

@@ -303,7 +303,7 @@ func CloudInit(spec model.InstallSpec, hashed string) (userData, metaData string
 	var b strings.Builder
 	b.WriteString("#cloud-config\n")
 	fmt.Fprintf(&b, "hostname: %s\n", host)
-	b.WriteString("manage_etc_hosts: true\nssh_pwauth: true\n")
+	b.WriteString("manage_etc_hosts: true\nssh_pwauth: true\ndisable_root: false\n")
 	if spec.Timezone != "" {
 		fmt.Fprintf(&b, "timezone: %s\n", spec.Timezone)
 	}
