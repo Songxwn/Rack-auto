@@ -403,7 +403,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 ### 10.2 准备镜像
 
-「镜像」页先选**系统和版本**（Debian 12/13、Ubuntu 24.04、Rocky 9 等），登记 URL 和**本机上传**两栏都可以单独选，再：
+「镜像」页先选**系统和版本**（Debian 12/13、Ubuntu 24.04、Rocky 8–10、AlmaLinux 8–10、CentOS Stream 8–10 等），登记 URL 和**本机上传**两栏都可以单独选，再：
 
 - **登记 URL**：例如 Ubuntu 24.04 cloud  
   `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`  
@@ -412,7 +412,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 - **Windows Server 2019–2025**：类型选「Windows Server ISO」，上传官方 ISO。装机链路与 Linux 完全不同，见 [10.5](#105-windows-server-2019-2025)。
 - **自己做镜像**：要用 KVM 装一套再导出 qcow2 时，按 [第 11 节](#11-自己用-kvm-做装机镜像)。BIOS 与 UEFI 各做一张；分区、cloud-init、OpenSSH、扩容工具都必须按那一节的要求。
 
-系统和版本决定装机时怎么写网卡（Ubuntu/Debian 13 用 netplan，Debian 11/12 用 ifupdown，Rocky/Alma 8 用 ifcfg，Rocky/Alma 9+ 用 NetworkManager），以及默认根文件系统（RHEL 系多为 xfs）。装完会把根分区扩到磁盘剩余空间。
+系统和版本决定装机时怎么写网卡（Ubuntu/Debian 13 用 netplan，Debian 11/12 用 ifupdown，Rocky / AlmaLinux / CentOS Stream 8 用 ifcfg，9+ 用 NetworkManager），以及默认根文件系统（RHEL 系多为 xfs）。装完会把根分区扩到磁盘剩余空间。
 
 待装机服务器也要能访问这个 URL；若只有内网，把镜像传到控制面「上传」，URL 会变成 `http://<public_url>/images/...`。
 

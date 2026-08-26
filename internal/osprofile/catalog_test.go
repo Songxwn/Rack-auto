@@ -11,8 +11,13 @@ func TestLookupBackends(t *testing.T) {
 		{"debian", "13", Netplan, "ext4", "root"},
 		{"rocky", "8", Ifcfg, "xfs", "root"},
 		{"rocky", "9", NM, "xfs", "root"},
+		{"alma", "8", Ifcfg, "xfs", "root"},
 		{"alma", "9", NM, "xfs", "root"},
+		{"alma", "10", NM, "xfs", "root"},
 		{"centos", "7", Ifcfg, "ext4", "root"},
+		{"centos", "8", Ifcfg, "xfs", "root"},
+		{"centos stream", "9", NM, "xfs", "root"},
+		{"centos", "10", NM, "xfs", "root"},
 		{"windows", "2022", Windows, "ntfs", "Administrator"},
 		{"windows server", "2019", Windows, "ntfs", "Administrator"},
 		{"", "", Netplan, "ext4", "root"},
@@ -30,6 +35,12 @@ func TestLabel(t *testing.T) {
 		t.Fatal(got)
 	}
 	if got := Label("rocky linux", "9"); got != "Rocky Linux 9" {
+		t.Fatal(got)
+	}
+	if got := Label("almalinux", "10"); got != "AlmaLinux 10" {
+		t.Fatal(got)
+	}
+	if got := Label("centos stream", "8"); got != "CentOS Stream 8" {
 		t.Fatal(got)
 	}
 	if got := Label("windows", "2025"); got != "Windows Server 2025" {

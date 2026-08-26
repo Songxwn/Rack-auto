@@ -577,10 +577,13 @@ const OS_CATALOG = [
   { family: "alma", label: "AlmaLinux", versions: [
     { id: "8", label: "8", default_user: "root", root_fs: "xfs", net_backend: "ifcfg" },
     { id: "9", label: "9", default_user: "root", root_fs: "xfs", net_backend: "nm" },
+    { id: "10", label: "10", default_user: "root", root_fs: "xfs", net_backend: "nm" },
   ]},
   { family: "centos", label: "CentOS", versions: [
     { id: "7", label: "7", default_user: "root", root_fs: "ext4", net_backend: "ifcfg" },
+    { id: "8", label: "Stream 8", default_user: "root", root_fs: "xfs", net_backend: "ifcfg" },
     { id: "9", label: "Stream 9", default_user: "root", root_fs: "xfs", net_backend: "nm" },
+    { id: "10", label: "Stream 10", default_user: "root", root_fs: "xfs", net_backend: "nm" },
   ]},
   { family: "windows", label: "Windows Server", versions: [
     { id: "2019", label: "2019", default_user: "Administrator", root_fs: "ntfs", net_backend: "windows" },

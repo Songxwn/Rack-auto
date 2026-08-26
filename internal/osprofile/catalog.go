@@ -45,10 +45,13 @@ func Catalog() []Distro {
 		{Family: "alma", Label: "AlmaLinux", Versions: []Version{
 			{ID: "8", Label: "8", DefaultUser: "root", RootFS: "xfs", NetBackend: Ifcfg},
 			{ID: "9", Label: "9", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
+			{ID: "10", Label: "10", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
 		}},
 		{Family: "centos", Label: "CentOS", Versions: []Version{
 			{ID: "7", Label: "7", DefaultUser: "root", RootFS: "ext4", NetBackend: Ifcfg},
+			{ID: "8", Label: "Stream 8", DefaultUser: "root", RootFS: "xfs", NetBackend: Ifcfg},
 			{ID: "9", Label: "Stream 9", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
+			{ID: "10", Label: "Stream 10", DefaultUser: "root", RootFS: "xfs", NetBackend: NM},
 		}},
 		{Family: "windows", Label: "Windows Server", Versions: []Version{
 			{ID: "2019", Label: "2019", DefaultUser: "Administrator", RootFS: "ntfs", NetBackend: Windows},
@@ -64,11 +67,11 @@ func Catalog() []Distro {
 func CanonicalFamily(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	switch s {
-	case "almalinux", "alma linux":
+	case "almalinux", "alma linux", "alma-linux":
 		return "alma"
 	case "rocky linux", "rockylinux", "rhel", "redhat":
 		return "rocky"
-	case "centos stream":
+	case "centos stream", "centos-stream", "centosstream":
 		return "centos"
 	case "windows server", "windowsserver", "win-server", "winserver":
 		return "windows"
