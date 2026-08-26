@@ -1,7 +1,7 @@
 listen: ":8080"
 public_url: "http://10.0.0.1:8080"
 data_dir: "./data"
-api_token: ""
+api_token: ""                 # 给 Agent / 脚本用；网页登录默认 admin / admin
 tftp_listen: ":69"
 
 # 内置 DHCP 也可在 Web「网络引导」里开关，并指定接入网卡。下列为默认值。

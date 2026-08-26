@@ -90,7 +90,7 @@ cp configs/rackauto.example.yaml configs/rackauto.yaml
 
 打开文件，把 `public_url` 改成**待装机服务器能访问的控制面地址**，例如 `http://10.0.0.50:8080`。不要填 `127.0.0.1`：PXE 起来之后，是服务器自己来拉内核的。
 
-建议同时设一个 `api_token`，打开网页时在右上角填同一串。
+建议同时设一个 `api_token`，给 **RAMOS Agent 和脚本** 用（写在配置里即可，网页不再填）。打开网页用账号登录，默认 **admin / admin**，进控制台后点右上角「账号」改掉。
 
 ### 3. 准备引导文件
 
@@ -110,7 +110,7 @@ DHCP / TFTP 需要特权端口，请用 root：
 sudo ./bin/rackauto serve -config configs/rackauto.yaml
 ```
 
-浏览器打开 `http://<控制面IP>:8080`。左下角变成 `CTRL // ONLINE` 就对了。
+浏览器打开 `http://<控制面IP>:8080`，用 **admin / admin** 登录。左下角变成 `CTRL // ONLINE` 就对了。登录后请立刻改密码。
 
 ### 5. 让服务器能 PXE
 
@@ -127,7 +127,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | --- | --- |
 | `listen` | Web / iPXE / API，默认 `:8080` |
 | `public_url` | 服务器 PXE 后访问控制面的 URL，必须是对端可达地址 |
-| `api_token` | 非空则请求要带 `X-API-Token`（网页右上角填写） |
+| `api_token` | 给 Agent / 脚本用（`X-API-Token`）。网页管理改走账号登录，不拦 iPXE |
 | `data_dir` | 数据库、TFTP、镜像、Agent 存放目录 |
 | `tftp_listen` | 默认 `:69` |
 | `dhcp.enabled` | 内置 DHCP，也可只在网页里开关 |
@@ -145,6 +145,9 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/v1/health` | 健康检查（含 `version`） |
+| POST | `/api/v1/login` | Web 登录（默认 admin / admin） |
+| GET | `/api/v1/session` | 当前登录状态 |
+| PUT | `/api/v1/account` | 修改控制台用户名/密码 |
 | CRUD | `/api/v1/machines` | 机器与 BMC |
 | POST | `/api/v1/machines/{id}/power` | `on/off/cycle/reset/soft` |
 | POST | `/api/v1/machines/{id}/boot` | PXE/磁盘/光盘，BIOS 或 UEFI |

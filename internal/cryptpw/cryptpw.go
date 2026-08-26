@@ -23,3 +23,10 @@ func SHA512(password string) (string, error) {
 	}
 	return sha512_crypt.New().Generate([]byte(password), []byte("$6$rounds=5000$"+salt))
 }
+
+func Compare(hash, password string) bool {
+	if hash == "" || password == "" || !strings.HasPrefix(hash, "$6$") {
+		return false
+	}
+	return sha512_crypt.New().Verify(hash, []byte(password)) == nil
+}

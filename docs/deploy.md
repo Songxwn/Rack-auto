@@ -215,7 +215,7 @@ cp configs/rackauto.example.yaml configs/rackauto.yaml
 listen: ":8080"
 public_url: "http://10.0.0.50:8080"   # 改成控制面在「装机网」上的地址
 data_dir: "./data"                    # /opt 安装建议改成 /opt/rackauto/data
-api_token: "请换成一段随机字符串"       # 建议打开；Web 右上角 Token 填同一个
+api_token: "请换成一段随机字符串"       # 给 Agent / 脚本用；网页改走账号登录
 tftp_listen: ":69"
 ```
 
@@ -307,7 +307,7 @@ TFTP :69 目录 .../data/tftp
 
 若 TFTP 失败，多半是没 root，或本机已有 tftpd 占着 69。
 
-本机浏览器打开 `http://控制面IP:8080`。若配置了 `api_token`，在右上角 **API TOKEN** 里填同一串，失焦即会记住。左下角变成 `CTRL // ONLINE` 就对了：
+本机浏览器打开 `http://控制面IP:8080`，用 **admin / admin** 登录（右上角「账号」可改用户名和密码）。左下角变成 `CTRL // ONLINE` 就对了。iPXE 拉内核、Agent 报到**不走**这套网页登录。Agent 仍用配置里的 `api_token`（若你设了的话）。
 
 ![Rack-auto 控制台总览](images/console-overview.png)
 
@@ -334,7 +334,7 @@ sudo ufw allow 67/udp
 
 ## 9. 配置 DHCP
 
-打开控制台 **07 网络引导**。上方「控制面地址」应与 `public_url` 一致，不对就改完点保存。
+打开控制台 **08 网络引导**。上方「控制面地址」应与 `public_url` 一致，不对就改完点保存。
 
 ### 方案一：实验室，用内置 DHCP
 
@@ -755,6 +755,9 @@ docker compose exec rackauto rackauto bootstrap -config /etc/rackauto.yaml -data
 **装机账号和公钥每次都要手填**  
 在「模板」里保存账号（用户名/密码，公钥可选）或密钥（公钥列表）。装机向导第 2 步点模板名称就会填入；也可以把当前填写内容存成新模板。密码存在控制面 SQLite，和 BMC 密码一样靠 API Token 保护。
 
+**打开网页要登录**  
+默认账号密码是 **admin / admin**。进控制台后点右上角 **账号** 修改。这只拦住浏览器管理界面；iPXE、`/ramos/`、`/images/` 和 Agent 接口不走网页登录。Agent 若启用了 `api_token`，仍在内核参数里带 Token。
+
 **列表里没有品牌/型号/序列号**  
 进 RAMOS 后 Agent 会读 DMI 自动上报。已配 **Redfish** 的机器可在「机器」里点「检测」，不进内存系统也能从 BMC 拉。仅 IPMI 时请先 PXE。点 **装机** 会跳到向导并选中该机。
 
@@ -820,7 +823,7 @@ API Token 填错，或页面不是从控制面自己的 HTTP 打开的（不要�
 
 - 若一直只有这一行、机器还不出现：多半是旧脚本在启动 Agent 前同步跑 `apt-get` 卡住了。请用 **v0.4.5+**，重启控制面后再 PXE。屏幕上应出现 `download .../rackauto-agent` 和 `starting rackauto-agent`。
 - `cannot download rackauto-agent`：把 Release 里的 `rackauto-agent` 拷到控制面 `data/agent/x86_64/rackauto-agent`（ARM 用 `aarch64`）。
-- `register: unauthorized`：网页右上角 Token 和控制面 `api_token` 不一致。
+- `register: unauthorized`：Agent 带的 `rackauto_token` 和控制面 `api_token` 不一致。网页登录账号拦不住 Agent；对一下配置和内核参数。
 - 也可在安装器里切到 tty2（Alt+F2）看 `/var/log/rackauto.log`。
 
 **装机写盘失败 / `qemu-img: executable file not found`**  

@@ -14,18 +14,17 @@ const kickers = {
 };
 let current = "dash";
 let cache = { machines: [], images: [], jobs: [], events: [], overview: {}, catalog: [], templates: [] };
-
-function token() { return $("#token").value.trim() || localStorage.getItem("rackauto_token") || ""; }
-$("#token").value = localStorage.getItem("rackauto_token") || "";
-$("#token").addEventListener("change", () => localStorage.setItem("rackauto_token", $("#token").value.trim()));
+let authed = false;
 
 async function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (!headers["Content-Type"] && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
-  const t = token();
-  if (t) headers["X-API-Token"] = t;
   const res = await fetch("/api/v1" + path, { ...opts, headers });
   const text = await res.text();
+  if (res.status === 401) {
+    showLogin(path === "/login" ? (text || "用户名或密码错误") : "请先登录");
+    throw new Error(text || "请先登录");
+  }
   if (!res.ok) throw new Error(text || res.statusText);
   return text ? JSON.parse(text) : null;
 }
@@ -67,7 +66,7 @@ function navTo(name) {
   render();
 }
 $$("#nav button").forEach(b => b.addEventListener("click", () => navTo(b.dataset.view)));
-$("#refresh").addEventListener("click", () => load().then(render));
+$("#refresh").addEventListener("click", () => { if (authed) load().then(render); });
 
 async function load() {
   try {
@@ -386,8 +385,7 @@ function uploadControlPlaneImage(file, fields) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/v1/images/upload");
-    const t = token();
-    if (t) xhr.setRequestHeader("X-API-Token", t);
+    xhr.withCredentials = true;
     let lastT = Date.now();
     let lastB = 0;
     let speed = 0;
@@ -407,6 +405,11 @@ function uploadControlPlaneImage(file, fields) {
       setUploadProgress({ loaded: file.size, total: file.size, speed: 0, phase: "inspecting" });
     };
     xhr.onload = () => {
+      if (xhr.status === 401) {
+        showLogin("请先登录");
+        reject(new Error("请先登录"));
+        return;
+      }
       if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
       else reject(new Error(xhr.responseText || ("HTTP " + xhr.status)));
     };
@@ -1571,8 +1574,9 @@ async function renderBoot() {
       <p class="hint">iPXE / RAMOS 必须能访问这个 URL。请填物理机或交换机可达的地址，不要用 127.0.0.1。</p>
       <div class="row">
         <div><label>Public URL</label><input id="b-url" value="${escapeHtml(settings.public_url || "")}"></div>
-        <div><label>API Token</label><input id="b-tok" type="password" placeholder="留空不修改"></div>
+        <div><label>API Token（Agent / 脚本）</label><input id="b-tok" type="password" placeholder="留空不修改"></div>
       </div>
+      <p class="hint">网页用右上角账号登录。Token 只给 RAMOS Agent 和自动化脚本用，不会拦住 iPXE。</p>
       <button class="primary" id="b-save" style="margin-top:10px">保存</button>
     </div>
     <div class="panel" style="margin-top:14px">
@@ -1699,6 +1703,121 @@ function openModal(html) {
 }
 function closeModal() { $("#modal").classList.add("hidden"); $("#modal").innerHTML = ""; }
 
+function setWho(name) {
+  const el = $("#who");
+  if (el) el.textContent = name || "—";
+}
+
+function showLogin(msg) {
+  authed = false;
+  const box = $("#login");
+  if (box) box.classList.remove("hidden");
+  const err = $("#login-err");
+  if (err && msg) err.textContent = String(msg).replace(/\s+$/, "");
+}
+
+function hideLogin() {
+  const box = $("#login");
+  if (box) box.classList.add("hidden");
+  const err = $("#login-err");
+  if (err) err.textContent = "";
+}
+
+async function doLogin() {
+  const username = ($("#login-user") && $("#login-user").value.trim()) || "";
+  const password = ($("#login-pass") && $("#login-pass").value) || "";
+  const err = $("#login-err");
+  if (err) err.textContent = "";
+  try {
+    const res = await fetch("/api/v1/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      if (res.status === 401) throw new Error("用户名或密码错误");
+      if (res.status === 429) throw new Error("尝试次数过多，稍后再试");
+      throw new Error(text || res.statusText);
+    }
+    const out = text ? JSON.parse(text) : {};
+    if ($("#login-pass")) $("#login-pass").value = "";
+    setWho(out.username || username);
+    authed = true;
+    hideLogin();
+    await load();
+    render();
+  } catch (e) {
+    if (err) err.textContent = e.message || "登录失败";
+  }
+}
+
+function accountForm() {
+  const cur = ($("#who") && $("#who").textContent !== "—" ? $("#who").textContent : "admin") || "admin";
+  openModal(`
+    <h3>控制台账号</h3>
+    <p class="hint">用于登录 Web 管理界面。改完立即生效。iPXE / Agent 不受影响。</p>
+    <label>用户名</label><input id="acc-user" value="${escapeHtml(cur)}" autocomplete="username">
+    <label>当前密码</label><input id="acc-cur" type="password" autocomplete="current-password">
+    <div class="row">
+      <div><label>新密码</label><input id="acc-new" type="password" placeholder="不改请留空" autocomplete="new-password"></div>
+      <div><label>确认新密码</label><input id="acc-new2" type="password" placeholder="不改请留空" autocomplete="new-password"></div>
+    </div>
+    <div class="actions" style="margin-top:14px">
+      <button class="primary" id="acc-save">保存</button>
+      <button class="ghost" id="acc-close">取消</button>
+    </div>`);
+  $("#acc-close").onclick = closeModal;
+  $("#acc-save").onclick = async () => {
+    const username = $("#acc-user").value.trim();
+    const currentPassword = $("#acc-cur").value;
+    const password = $("#acc-new").value;
+    const password2 = $("#acc-new2").value;
+    if (!currentPassword) return alert("请填写当前密码");
+    if (!username) return alert("请填写用户名");
+    if (password !== password2) return alert("两次新密码不一致");
+    try {
+      const out = await api("/account", { method: "PUT", body: JSON.stringify({ username, current_password: currentPassword, password }) });
+      setWho((out && out.username) || username);
+      closeModal();
+      alert("账号已更新");
+    } catch (e) { alert(e.message); }
+  };
+}
+
+async function boot() {
+  fetch("/api/v1/health").then(r => r.json()).then(h => {
+    if (h && h.version) {
+      setVersion(h.version);
+      const v = $("#login-ver");
+      if (v) v.textContent = h.version;
+    }
+  }).catch(() => {});
+  try {
+    const sess = await fetch("/api/v1/session").then(r => r.json());
+    if (sess && sess.authenticated) {
+      setWho(sess.username);
+      authed = true;
+      hideLogin();
+      await load();
+      render();
+      return;
+    }
+  } catch (e) {}
+  showLogin();
+}
+
+if ($("#login-go")) $("#login-go").onclick = doLogin;
+if ($("#login-pass")) $("#login-pass").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+if ($("#login-user")) $("#login-user").addEventListener("keydown", e => { if (e.key === "Enter") { const p = $("#login-pass"); if (p) p.focus(); } });
+if ($("#account")) $("#account").onclick = () => { if (authed) accountForm(); };
+if ($("#logout")) $("#logout").onclick = async () => {
+  try { await fetch("/api/v1/logout", { method: "POST" }); } catch (e) {}
+  closeModal();
+  setWho("—");
+  showLogin();
+};
+
 function tickClock() {
   const el = $("#clock");
   if (!el) return;
@@ -1707,5 +1826,8 @@ function tickClock() {
 tickClock();
 setInterval(tickClock, 1000);
 
-load().then(render);
-setInterval(() => { load().then(() => { if (["dash","jobs","machines"].includes(current)) render(); }); }, 8000);
+boot();
+setInterval(() => {
+  if (!authed) return;
+  load().then(() => { if (["dash", "jobs", "machines"].includes(current)) render(); });
+}, 8000);

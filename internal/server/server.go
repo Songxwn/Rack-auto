@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Songxwn/Rack-auto/internal/bmc"
@@ -31,53 +32,73 @@ type Server struct {
 	Store   *store.Store
 	Netboot *netboot.Service
 	Version string
+
+	sessMu     sync.Mutex
+	sessions   map[string]webSession
+	loginMu    sync.Mutex
+	loginFails map[string]loginGuard
 }
 
 func New(cfg config.Config, st *store.Store, nb *netboot.Service) *Server {
-	return &Server{Cfg: cfg, Store: st, Netboot: nb}
+	s := &Server{
+		Cfg:        cfg,
+		Store:      st,
+		Netboot:    nb,
+		sessions:   map[string]webSession{},
+		loginFails: map[string]loginGuard{},
+	}
+	if err := s.ensureWebAccount(); err != nil {
+		log.Printf("web account: %v", err)
+	}
+	return s
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", s.health)
-	mux.HandleFunc("GET /api/v1/overview", s.auth(s.overview))
-	mux.HandleFunc("GET /api/v1/events", s.auth(s.events))
-	mux.HandleFunc("GET /api/v1/settings", s.auth(s.getSettings))
-	mux.HandleFunc("PUT /api/v1/settings", s.auth(s.putSettings))
-	mux.HandleFunc("GET /api/v1/nics", s.auth(s.listNICs))
-	mux.HandleFunc("POST /api/v1/dhcp/apply", s.auth(s.applyDHCP))
-	mux.HandleFunc("POST /api/v1/dhcp/stop", s.auth(s.stopDHCP))
+	mux.HandleFunc("POST /api/v1/login", s.login)
+	mux.HandleFunc("POST /api/v1/logout", s.logout)
+	mux.HandleFunc("GET /api/v1/session", s.getSession)
+	mux.HandleFunc("PUT /api/v1/account", s.webAuth(s.putAccount))
 
-	mux.HandleFunc("GET /api/v1/machines", s.auth(s.listMachines))
-	mux.HandleFunc("POST /api/v1/machines", s.auth(s.createMachine))
-	mux.HandleFunc("GET /api/v1/machines/{id}", s.auth(s.getMachine))
-	mux.HandleFunc("PUT /api/v1/machines/{id}", s.auth(s.updateMachine))
-	mux.HandleFunc("DELETE /api/v1/machines/{id}", s.auth(s.deleteMachine))
-	mux.HandleFunc("POST /api/v1/machines/{id}/power", s.auth(s.power))
-	mux.HandleFunc("GET /api/v1/machines/{id}/power", s.auth(s.powerStatus))
-	mux.HandleFunc("POST /api/v1/machines/{id}/boot", s.auth(s.setBoot))
-	mux.HandleFunc("POST /api/v1/machines/{id}/pxe-install", s.auth(s.pxeInstall))
-	mux.HandleFunc("POST /api/v1/machines/{id}/detect", s.auth(s.detectMachine))
+	mux.HandleFunc("GET /api/v1/overview", s.webAuth(s.overview))
+	mux.HandleFunc("GET /api/v1/events", s.webAuth(s.events))
+	mux.HandleFunc("GET /api/v1/settings", s.webAuth(s.getSettings))
+	mux.HandleFunc("PUT /api/v1/settings", s.webAuth(s.putSettings))
+	mux.HandleFunc("GET /api/v1/nics", s.webAuth(s.listNICs))
+	mux.HandleFunc("POST /api/v1/dhcp/apply", s.webAuth(s.applyDHCP))
+	mux.HandleFunc("POST /api/v1/dhcp/stop", s.webAuth(s.stopDHCP))
 
-	mux.HandleFunc("GET /api/v1/os-catalog", s.auth(s.osCatalog))
-	mux.HandleFunc("GET /api/v1/images", s.auth(s.listImages))
-	mux.HandleFunc("POST /api/v1/images", s.auth(s.createImage))
-	mux.HandleFunc("POST /api/v1/images/upload", s.auth(s.uploadImage))
-	mux.HandleFunc("POST /api/v1/images/{id}/inspect", s.auth(s.inspectImage))
-	mux.HandleFunc("DELETE /api/v1/images/{id}", s.auth(s.deleteImage))
+	mux.HandleFunc("GET /api/v1/machines", s.webAuth(s.listMachines))
+	mux.HandleFunc("POST /api/v1/machines", s.webAuth(s.createMachine))
+	mux.HandleFunc("GET /api/v1/machines/{id}", s.webAuth(s.getMachine))
+	mux.HandleFunc("PUT /api/v1/machines/{id}", s.webAuth(s.updateMachine))
+	mux.HandleFunc("DELETE /api/v1/machines/{id}", s.webAuth(s.deleteMachine))
+	mux.HandleFunc("POST /api/v1/machines/{id}/power", s.webAuth(s.power))
+	mux.HandleFunc("GET /api/v1/machines/{id}/power", s.webAuth(s.powerStatus))
+	mux.HandleFunc("POST /api/v1/machines/{id}/boot", s.webAuth(s.setBoot))
+	mux.HandleFunc("POST /api/v1/machines/{id}/pxe-install", s.webAuth(s.pxeInstall))
+	mux.HandleFunc("POST /api/v1/machines/{id}/detect", s.webAuth(s.detectMachine))
+
+	mux.HandleFunc("GET /api/v1/os-catalog", s.webAuth(s.osCatalog))
+	mux.HandleFunc("GET /api/v1/images", s.webAuth(s.listImages))
+	mux.HandleFunc("POST /api/v1/images", s.webAuth(s.createImage))
+	mux.HandleFunc("POST /api/v1/images/upload", s.webAuth(s.uploadImage))
+	mux.HandleFunc("POST /api/v1/images/{id}/inspect", s.webAuth(s.inspectImage))
+	mux.HandleFunc("DELETE /api/v1/images/{id}", s.webAuth(s.deleteImage))
 	mux.Handle("/images/", http.StripPrefix("/images/", http.FileServer(http.Dir(s.Cfg.ImagesDir()))))
 
-	mux.HandleFunc("GET /api/v1/templates", s.auth(s.listTemplates))
-	mux.HandleFunc("POST /api/v1/templates", s.auth(s.createTemplate))
-	mux.HandleFunc("GET /api/v1/templates/{id}", s.auth(s.getTemplate))
-	mux.HandleFunc("PUT /api/v1/templates/{id}", s.auth(s.updateTemplate))
-	mux.HandleFunc("DELETE /api/v1/templates/{id}", s.auth(s.deleteTemplate))
+	mux.HandleFunc("GET /api/v1/templates", s.webAuth(s.listTemplates))
+	mux.HandleFunc("POST /api/v1/templates", s.webAuth(s.createTemplate))
+	mux.HandleFunc("GET /api/v1/templates/{id}", s.webAuth(s.getTemplate))
+	mux.HandleFunc("PUT /api/v1/templates/{id}", s.webAuth(s.updateTemplate))
+	mux.HandleFunc("DELETE /api/v1/templates/{id}", s.webAuth(s.deleteTemplate))
 
-	mux.HandleFunc("GET /api/v1/jobs", s.auth(s.listJobs))
-	mux.HandleFunc("GET /api/v1/jobs/{id}", s.auth(s.getJob))
-	mux.HandleFunc("POST /api/v1/jobs/install", s.auth(s.createInstall))
-	mux.HandleFunc("POST /api/v1/jobs/stress", s.auth(s.createStress))
-	mux.HandleFunc("POST /api/v1/jobs/{id}/cancel", s.auth(s.cancelJob))
+	mux.HandleFunc("GET /api/v1/jobs", s.webAuth(s.listJobs))
+	mux.HandleFunc("GET /api/v1/jobs/{id}", s.webAuth(s.getJob))
+	mux.HandleFunc("POST /api/v1/jobs/install", s.webAuth(s.createInstall))
+	mux.HandleFunc("POST /api/v1/jobs/stress", s.webAuth(s.createStress))
+	mux.HandleFunc("POST /api/v1/jobs/{id}/cancel", s.webAuth(s.cancelJob))
 
 	mux.HandleFunc("POST /api/v1/agent/register", s.auth(s.agentRegister))
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", s.auth(s.agentHeartbeat))
