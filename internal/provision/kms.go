@@ -88,7 +88,7 @@ func classifyWIMEdition(wim model.WIMImage) string {
 	}
 }
 
-// EffectiveProductKey returns the key written into unattend ProductKey.
+// EffectiveProductKey returns the key applied at first desktop logon via slmgr /ipk.
 // Custom product_key wins; otherwise resolve kms_key_id.
 func EffectiveProductKey(spec model.InstallSpec) string {
 	if key := strings.TrimSpace(spec.ProductKey); key != "" {

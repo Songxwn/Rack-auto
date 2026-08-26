@@ -70,7 +70,7 @@ func TestUnattendAndDiskpart(t *testing.T) {
 		"China Standard Time",
 		"rack-node-01",
 		"p&amp;a&lt;&#34;ss",
-		"XXXXX-XXXXX-XXXXX-XXXXX-XXXXX",
+		"slmgr.vbs /ipk XXXXX-XXXXX-XXXXX-XXXXX-XXXXX",
 		"AA-BB-CC-DD-EE-FF",
 		"10.0.0.20/24",
 		"fDenyTSConnections>false",
@@ -79,6 +79,9 @@ func TestUnattendAndDiskpart(t *testing.T) {
 		if !strings.Contains(xml, want) {
 			t.Fatalf("missing %q in unattend:\n%s", want, xml)
 		}
+	}
+	if strings.Contains(xml, "<Key>XXXXX-XXXXX-XXXXX-XXXXX-XXXXX</Key>") {
+		t.Fatal("product key must be applied at first logon via slmgr, not windowsPE ProductKey")
 	}
 	if strings.Contains(xml, "zh-CN") {
 		t.Fatal("must not force zh-CN")

@@ -50,14 +50,18 @@ func TestUnattendKMSAndDefender(t *testing.T) {
 	}
 	xml := provision.UnattendXML(spec, "aa:bb:cc:dd:ee:ff")
 	for _, want := range []string{
-		"WX4NM-KYWYW-QJJR4-XV3QB-6VM33",
+		"slmgr.vbs /ipk WX4NM-KYWYW-QJJR4-XV3QB-6VM33",
 		"slmgr.vbs /skms kms.songxwn.com",
 		"slmgr.vbs /ato",
+		"Test-Connection",
 		"Uninstall-WindowsFeature -Name Windows-Defender",
 	} {
 		if !strings.Contains(xml, want) {
 			t.Fatalf("missing %q in unattend:\n%s", want, xml)
 		}
+	}
+	if strings.Contains(xml, "<Key>WX4NM-KYWYW-QJJR4-XV3QB-6VM33</Key>") {
+		t.Fatal("GVLK must not go into windowsPE ProductKey (DISM skips that pass)")
 	}
 	if provision.EffectiveProductKey(model.InstallSpec{ProductKey: "CUSTOM", KMSKeyID: "2022-standard"}) != "CUSTOM" {
 		t.Fatal("custom key should win")

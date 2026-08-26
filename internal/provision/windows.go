@@ -307,11 +307,9 @@ func UnattendXML(spec model.InstallSpec, pxeMAC string) string {
 	userEsc := xmlEscape(user)
 	hostEsc := xmlEscape(host)
 	org := "Rack-auto"
-	key := EffectiveProductKey(spec)
+	// DISM /Apply-Image never runs the windowsPE pass, so ProductKey here does not apply.
+	// Install GVLK / retail keys and KMS host after first desktop logon via slmgr.
 	keyXML := "<ProductKey><WillShowUI>OnError</WillShowUI></ProductKey>"
-	if key != "" {
-		keyXML = "<ProductKey><Key>" + xmlEscape(key) + "</Key><WillShowUI>OnError</WillShowUI></ProductKey>"
-	}
 	localAccount := ""
 	autoUser := "Administrator"
 	if !strings.EqualFold(user, "Administrator") {
@@ -416,11 +414,20 @@ func buildFirstLogonCommands(spec model.InstallSpec) string {
 		`cmd.exe /c netsh advfirewall firewall set rule group="@FirewallAPI.dll,-28752" new enable=Yes`,
 		`cmd.exe /c reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f`,
 	)
-	if host := strings.TrimSpace(spec.KMSHost); host != "" {
-		host = strings.ReplaceAll(host, `"`, "")
-		host = strings.ReplaceAll(host, "&", "")
-		host = strings.ReplaceAll(host, "<", "")
-		host = strings.ReplaceAll(host, ">", "")
+	key := sanitizeProductKey(EffectiveProductKey(spec))
+	host := sanitizeKMSHost(spec.KMSHost)
+	if key != "" || host != "" {
+		waitHost := host
+		if waitHost == "" {
+			waitHost = "8.8.8.8"
+		}
+		// Wait until the desktop session has network before touching licensing.
+		cmds = append(cmds, `cmd.exe /c powershell.exe -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 90;$i++){ try { if(Test-Connection -ComputerName '`+waitHost+`' -Count 1 -Quiet){ exit 0 } } catch {}; Start-Sleep -Seconds 2 }; exit 0"`)
+	}
+	if key != "" {
+		cmds = append(cmds, `cmd.exe /c cscript //B %SystemRoot%\System32\slmgr.vbs /ipk `+key)
+	}
+	if host != "" {
 		cmds = append(cmds,
 			`cmd.exe /c cscript //B %SystemRoot%\System32\slmgr.vbs /skms `+host,
 			`cmd.exe /c cscript //B %SystemRoot%\System32\slmgr.vbs /ato`,
@@ -435,9 +442,32 @@ func buildFirstLogonCommands(spec model.InstallSpec) string {
 	for i, cmd := range cmds {
 		fmt.Fprintf(&b, `        <SynchronousCommand wcm:action="add">
           <Order>%d</Order>
+          <Description>Rack-auto %d</Description>
           <CommandLine>%s</CommandLine>
         </SynchronousCommand>
-`, i+1, xmlEscape(cmd))
+`, i+1, i+1, xmlEscape(cmd))
+	}
+	return b.String()
+}
+
+func sanitizeKMSHost(host string) string {
+	host = strings.TrimSpace(host)
+	host = strings.ReplaceAll(host, `"`, "")
+	host = strings.ReplaceAll(host, "&", "")
+	host = strings.ReplaceAll(host, "<", "")
+	host = strings.ReplaceAll(host, ">", "")
+	host = strings.ReplaceAll(host, "'", "")
+	host = strings.ReplaceAll(host, " ", "")
+	return host
+}
+
+func sanitizeProductKey(key string) string {
+	key = strings.TrimSpace(strings.ToUpper(key))
+	var b strings.Builder
+	for _, r := range key {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		}
 	}
 	return b.String()
 }
