@@ -479,7 +479,10 @@ API Token 填错，或页面不是从控制面自己的 HTTP 打开的（不要�
 - `register: unauthorized`：网页右上角 Token 和控制面 `api_token` 不一致。
 - 也可在安装器里切到 tty2（Alt+F2）看 `/var/log/rackauto.log`。
 
-**装机写盘失败 / qemu-img**  
+**装机写盘失败 / `qemu-img: executable file not found`**  
+v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `qemu-utils`。请换成 **v0.4.6+** 的 `rackauto-agent`（拷到 `data/agent/x86_64/` 后重新 PXE）：Agent 会内置转换 qcow2，不依赖 `qemu-img`。权宜之计：在 RAMOS 里 `apt-get install -y qemu-utils` 后再从网页重发装机任务。
+
+**装机写盘失败 / 镜像下不下来**  
 镜像 URL 机器访问不了（HTTPS 证书、要代理）。改成控制面本地上传。确认类型选对（cloud 的 qcow2 选「云镜像」）。
 
 **装完进不了系统**  

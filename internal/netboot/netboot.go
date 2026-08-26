@@ -345,9 +345,9 @@ if [ -z "$ok" ] || [ ! -s "$AGENT" ]; then
 fi
 chmod +x "$AGENT"
 
-# Never block registration on apt (installer networks often cannot reach Ubuntu archives).
+# Optional extras (sgdisk / vfat / grub). Do not block registration or qcow2 write.
 ( apt-get update -qq || true
-  apt-get install -y -qq qemu-utils efibootmgr dosfstools e2fsprogs || true
+  apt-get install -y -qq qemu-utils gdisk efibootmgr dosfstools e2fsprogs || true
 ) >/var/log/rackauto-apt.log 2>&1 &
 
 log "starting rackauto-agent"

@@ -6,6 +6,7 @@ require (
 	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5
 	github.com/bougou/go-ipmi v0.9.0
 	github.com/insomniacslk/dhcp v0.0.0-20260728151720-c308df0fdcef
+	github.com/lima-vm/go-qcow2reader v0.7.1
 	github.com/pin/tftp/v3 v3.2.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.57.0

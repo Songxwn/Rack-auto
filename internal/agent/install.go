@@ -88,17 +88,13 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		if err := verifyChecksum(tmp, checksum, checksumType); err != nil {
 			return err
 		}
-		raw := tmp
-		if looksQcow(tmp) {
-			progress(45, "转换 qcow2 → raw")
-			raw = tmp + ".raw"
-			if err := run(log, "qemu-img", "convert", "-O", "raw", tmp, raw); err != nil {
-				return err
+		progress(45, "写入 "+disk)
+		if err := writeDiskImage(log, tmp, disk, func(copied, total int64) {
+			if total > 0 {
+				c.Progress(job.ID, 45+int(copied*20/total), fmt.Sprintf("写入磁盘 %d/%d MB", copied>>20, total>>20))
 			}
-		}
-		progress(55, "dd 写入 "+disk)
-		if err := run(log, "dd", "if="+raw, "of="+disk, "bs=8M", "conv=fsync", "status=progress"); err != nil {
-			return fmt.Errorf("写入磁盘失败（也可使用 qemu-img convert）: %w", err)
+		}); err != nil {
+			return fmt.Errorf("写入磁盘失败: %w", err)
 		}
 		_ = run(log, "partprobe", disk)
 		time.Sleep(2 * time.Second)
@@ -145,19 +141,13 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 	if err := verifyChecksum(tmp, checksum, checksumType); err != nil {
 		return err
 	}
-	src := tmp
-	if looksQcow(tmp) {
-		progress(52, "转换 qcow2")
-		src = tmp + ".raw"
-		if err := run(log, "qemu-img", "convert", "-O", "raw", tmp, src); err != nil {
-			return err
+	progress(52, "写入根分区 "+rootDev)
+	if err := writeDiskImage(log, tmp, rootDev, func(copied, total int64) {
+		if total > 0 {
+			c.Progress(job.ID, 52+int(copied*16/total), fmt.Sprintf("写入根分区 %d/%d MB", copied>>20, total>>20))
 		}
-	}
-	progress(58, "写入根分区 "+rootDev)
-	if err := run(log, "qemu-img", "convert", "-O", "raw", src, rootDev); err != nil {
-		if err := run(log, "dd", "if="+src, "of="+rootDev, "bs=8M", "conv=fsync", "status=progress"); err != nil {
-			return err
-		}
+	}); err != nil {
+		return err
 	}
 	_ = run(log, "e2fsck", "-fp", rootDev)
 	_ = run(log, "resize2fs", rootDev)
@@ -193,17 +183,6 @@ func rootIndex(parts []model.Partition) int {
 		}
 	}
 	return len(parts) - 1
-}
-
-func looksQcow(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return strings.Contains(path, "qcow")
-	}
-	defer f.Close()
-	hdr := make([]byte, 4)
-	_, _ = f.Read(hdr)
-	return string(hdr) == "QFI\xfb"
 }
 
 func verifyChecksum(path, sum, kind string) error {
