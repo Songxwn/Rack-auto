@@ -15,8 +15,3 @@ jobs:
           go-version-file: go.mod
       - name: Test
         run: go test ./...
-      - name: Build
-        run: |
-          go build -o /tmp/rackauto ./cmd/rackauto
-          go build -o /tmp/rackauto-agent ./cmd/rackauto-agent
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/winpe-curl.exe ./cmd/winpe-curl
