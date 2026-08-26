@@ -125,6 +125,13 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		if err := injectConfig(log, rootDev, disk, spec, job.Image, true); err != nil {
 			return err
 		}
+		progress(88, "UEFI fallback boot files")
+		if err := ensureUEFIBoot(log, disk, spec.Firmware); err != nil {
+			if strings.EqualFold(spec.Firmware, model.FirmwareUEFI) {
+				return fmt.Errorf("UEFI boot files: %w", err)
+			}
+			log("warn: UEFI boot setup: %v", err)
+		}
 		progress(95, "config done")
 		if spec.Reboot {
 			progress(98, "rebooting into installed OS")
@@ -179,8 +186,14 @@ func (c *Client) RunInstall(ctx context.Context, job *model.AgentJob) error {
 		return err
 	}
 	progress(90, "install bootloader")
-	if err := installBootloader(log, disk, spec); err != nil {
-		log("warn: bootloader install failed: %v (cloud image may already have one)", err)
+	if err := installBootloader(log, disk, rootDev, spec); err != nil {
+		log("warn: bootloader install failed: %v", err)
+	}
+	if err := ensureUEFIBoot(log, disk, spec.Firmware); err != nil {
+		if strings.EqualFold(spec.Firmware, model.FirmwareUEFI) {
+			return fmt.Errorf("UEFI boot files: %w", err)
+		}
+		log("warn: UEFI boot setup: %v", err)
 	}
 	if spec.Reboot {
 		progress(98, "rebooting")
@@ -494,23 +507,41 @@ func injectConfig(log func(string, ...any), rootDev, disk string, spec model.Ins
 	return nil
 }
 
-func installBootloader(log func(string, ...any), disk string, spec model.InstallSpec) error {
+func installBootloader(log func(string, ...any), disk, rootDev string, spec model.InstallSpec) error {
 	fw := spec.Firmware
 	if fw == "" {
 		fw = firmware()
 	}
-	cmds := []string{
-		"mount --bind /dev /mnt/target/dev",
-		"mount --bind /proc /mnt/target/proc",
-		"mount --bind /sys /mnt/target/sys",
+	mnt := "/mnt/target"
+	_ = os.MkdirAll(mnt, 0o755)
+	if err := run(log, "mount", rootDev, mnt); err != nil {
+		if err := run(log, "mount", "-o", "nouuid", rootDev, mnt); err != nil {
+			return err
+		}
 	}
-	for _, c := range cmds {
+	defer func() { _ = exec.Command("umount", "-R", mnt).Run() }()
+	if fw == model.FirmwareUEFI {
+		esp, _, err := findESP(disk)
+		if err != nil {
+			return err
+		}
+		efi := filepath.Join(mnt, "boot", "efi")
+		_ = os.MkdirAll(efi, 0o755)
+		if err := run(log, "mount", esp, efi); err != nil {
+			return fmt.Errorf("mount ESP: %w", err)
+		}
+	}
+	for _, c := range []string{
+		"mount --bind /dev " + mnt + "/dev",
+		"mount --bind /proc " + mnt + "/proc",
+		"mount --bind /sys " + mnt + "/sys",
+	} {
 		_ = runShell(log, c)
 	}
 	if fw == model.FirmwareUEFI {
-		return runShell(log, "chroot /mnt/target grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=rackauto --recheck && chroot /mnt/target grub-mkconfig -o /boot/grub/grub.cfg")
+		return runShell(log, "chroot "+mnt+" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=BOOT --removable --recheck && chroot "+mnt+" grub-mkconfig -o /boot/grub/grub.cfg")
 	}
-	return runShell(log, "chroot /mnt/target grub-install --target=i386-pc --recheck "+disk+" && chroot /mnt/target grub-mkconfig -o /boot/grub/grub.cfg")
+	return runShell(log, "chroot "+mnt+" grub-install --target=i386-pc --recheck "+disk+" && chroot "+mnt+" grub-mkconfig -o /boot/grub/grub.cfg")
 }
 
 func run(log func(string, ...any), name string, args ...string) error {

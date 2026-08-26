@@ -548,6 +548,8 @@ dnf install -y grub2-efi-x64 shim-x64
 grub2-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --removable
 ```
 
+v0.4.21 起，即使镜像里只有 `\EFI\debian\grubx64.efi` 这类发行版路径，装机结束时 Agent 也会拷一份到 `\EFI\BOOT\BOOTX64.EFI`，真机固件才能找到。镜像里仍然建议带上 `--removable`。
+
 BIOS 确认启动标志（应看到 `*`）：
 
 ```bash
@@ -823,6 +825,9 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 
 **装机写盘失败 / 镜像下不下来**  
 镜像 URL 机器访问不了（HTTPS 证书、要代理）。改成控制面本地上传。确认类型选对（cloud 的 qcow2 选「云镜像」）。
+
+**装完进不了系统 / UEFI 说硬盘上没有 EFI 文件**  
+整盘 qcow2 从虚拟机拷到服务器后，机器固件**没有**虚拟机里的 NVRAM 启动项，只会找 `\EFI\BOOT\BOOTX64.EFI`。Debian/Rocky 安装器常常只把 grub 放在 `\EFI\debian` 或 `\EFI\rocky`，固件就认为 ESP 是空的。请换成 **v0.4.21+** 的 `rackauto` 和 `rackauto-agent`，重新 PXE 后再装一次：Agent 会把 shim/grub 拷到 `\EFI\BOOT\`，并尽量用 efibootmgr 写一条启动项。装机日志里应出现 `UEFI fallback` 和 `ESP file EFI/...`。BMC 下次启动改回 **磁盘 / UEFI**。若开了 Secure Boot，镜像里需要有 shim（官方 cloud 镜像一般有；自制镜像可先关 Secure Boot）。
 
 **装完进不了系统**  
 先看镜像页「引导」列：整盘云镜像需要能匹配向导里的固件。BIOS 盘要有 MBR 启动标志；UEFI 盘要有 ESP 和 EFI 加载器。自制镜像按 [第 11 节](#11-自己用-kvm-做装机镜像)。v0.4.10 起上传/检测会解析 GPT 和 EFI 文件；装机时不再用向导分区表覆盖镜像自带的 fstab。若仍起不来：BMC 把下次启动改回磁盘，确认机器固件模式和镜像匹配。

@@ -32,9 +32,10 @@ func growDisk(log func(string, ...any), disk, rootDev string, hint int) error {
 	if plan.MoveESP != nil {
 		esp := provision.PartitionPath(disk, plan.MoveESP.Num)
 		espBackup = "/tmp/rackauto-esp.img"
-		if err := run(log, "dd", "if="+esp, "of="+espBackup, "bs=1M", "conv=fsync", "status=none"); err != nil {
+		if err := copyAll(esp, espBackup); err != nil {
 			return fmt.Errorf("backup ESP: %w", err)
 		}
+		log("backed up ESP %s", esp)
 	}
 	_ = run(log, "sgdisk", "-e", disk)
 	dump, err := exec.Command("sfdisk", "-d", disk).Output()
@@ -55,10 +56,12 @@ func growDisk(log func(string, ...any), disk, rootDev string, hint int) error {
 	_ = run(log, "partprobe", disk)
 	if plan.MoveESP != nil && espBackup != "" {
 		esp := provision.PartitionPath(disk, plan.MoveESP.Num)
-		if err := run(log, "dd", "if="+espBackup, "of="+esp, "bs=1M", "conv=fsync", "status=none"); err != nil {
+		if err := copyAll(espBackup, esp); err != nil {
 			return fmt.Errorf("restore ESP: %w", err)
 		}
+		log("restored ESP %s", esp)
 		_ = os.Remove(espBackup)
+		_ = run(log, "sgdisk", "-t", fmt.Sprintf("%d:ef00", plan.MoveESP.Num), disk)
 	}
 	root := rootDev
 	if plan.Grow != nil {
