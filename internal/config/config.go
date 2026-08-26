@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func Load(path string) (Config, error) {
 		}
 		return cfg, err
 	}
-	if err := yaml.Unmarshal(b, &cfg); err != nil {
+	if err := yaml.Unmarshal(expandYAMLIndentTabs(b), &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.normalize()
@@ -103,6 +104,33 @@ func (c *Config) normalize() {
 		c.Bootstrap.UbuntuArches = []string{"x86_64"}
 	}
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
+}
+
+// expandYAMLIndentTabs turns leading tabs into two spaces.
+// YAML forbids tab indentation; a pasted example once shipped a tab on ubuntu_cdimage.
+func expandYAMLIndentTabs(b []byte) []byte {
+	if !bytes.ContainsRune(b, '\t') {
+		return b
+	}
+	lines := bytes.Split(b, []byte("\n"))
+	out := make([][]byte, len(lines))
+	changed := false
+	for i, line := range lines {
+		n := 0
+		for n < len(line) && line[n] == '\t' {
+			n++
+		}
+		if n == 0 {
+			out[i] = line
+			continue
+		}
+		out[i] = append(bytes.Repeat([]byte("  "), n), line[n:]...)
+		changed = true
+	}
+	if !changed {
+		return b
+	}
+	return bytes.Join(out, []byte("\n"))
 }
 
 func (c Config) DBPath() string      { return filepath.Join(c.DataDir, "rackauto.db") }
