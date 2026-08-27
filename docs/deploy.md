@@ -401,7 +401,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 
 **有 BMC：** 打开「机器」→「登记机器 / BMC」。填名称、MAC（PXE 那块网卡）、固件（UEFI 或 BIOS）、BMC 协议与地址。保存后可用「开机 / PXE重启」试一下。配了 **Redfish** 时，点「检测」会从 BMC 读取品牌、型号、序列号。
 
-**没有 BMC：** 到机柜把服务器设为「网卡 PXE 启动」，直接开机。进 RAMOS 后，Agent 会向控制面报到，并带上 DMI（品牌/型号/序列号）。机器列表里会出现它。
+**没有 BMC：** 到机柜把服务器设为「网卡 PXE 启动」，直接开机。进 RAMOS 后，Agent 会向控制面报到，并带上 DMI（品牌/型号/序列号）、磁盘、网卡链路 UP/DOWN、GPU 型号。机器列表里会出现它。
 
 列表和详情里都能看到这些信息。点 **装机** 会跳到装机向导并选中这台机器。
 
@@ -857,7 +857,7 @@ RAMOS 是 Ubuntu live，网卡名常是 `ens3` / `enp1s0`；Debian、Rocky 装�
 2. **iPXE 循环。** 已经进入 iPXE 后应下发本机 TFTP 的 `boot.ipxe`，不能再给 `undionly.kpxe`。请更新控制面后重启，并把 `public_url` 改成 PXE 网段地址（例如 `http://192.168.177.1:8080`）。内核和脚本都从控制面拉取，不访问公网。
 
 **PXE 一直 DHCP timeout**  
-二层不通、选错接入网卡、或网段里另有 DHCP 在抢。抓包看 UDP 67/68。确认交换机没有 DHCP snooping 拦了控制面。
+二层不通、选错接入网卡、或网段里另有 DHCP 在抢。抓包看 UDP 67/68。确认交换机没有 DHCP snooping 拦了控制面。临时可进 UEFI **EFI Internal Shell**，用 U 盘加载 `ipxe.efi` 后手工写 IP 再 `chain` 控制面，见 [efi-shell-manual-boot.md](efi-shell-manual-boot.md)。
 
 **能拿到地址，TFTP 失败 / PXE-E32**  
 69/udp 没放行，或 `data/tftp` 里没有对应文件。再跑一次 `bootstrap`。部分网卡 UEFI 更吃 `snponly.efi`，可在现有 DHCP 里改 filename 试一下。

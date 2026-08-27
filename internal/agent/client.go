@@ -152,6 +152,7 @@ func CollectInventory() *model.Inventory {
 		CPUModel: cpuModel(),
 		Disks:    listDisks(),
 		NICs:     listNICs(),
+		GPUs:     listGPUs(),
 		UptimeSec: uptime(),
 	}
 	applyDMI(inv)
@@ -233,14 +234,23 @@ func listNICs() []model.NIC {
 		if iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		n := model.NIC{Name: iface.Name, MAC: strings.ToLower(iface.HardwareAddr.String()), MTU: iface.MTU, Up: iface.Flags&net.FlagUp != 0}
+		flagUp := iface.Flags&net.FlagUp != 0
+		up, oper := nicLinkState(iface.Name, flagUp)
+		n := model.NIC{
+			Name:      iface.Name,
+			MAC:       strings.ToLower(iface.HardwareAddr.String()),
+			MTU:       iface.MTU,
+			Up:        up,
+			OperState: oper,
+		}
 		addrs, _ := iface.Addrs()
 		for _, a := range addrs {
 			n.IPs = append(n.IPs, a.String())
 		}
-		if p := filepath.Join("/sys/class/net", iface.Name, "speed"); true {
-			if b, err := os.ReadFile(p); err == nil {
-				n.Speed = strings.TrimSpace(string(b)) + "Mb/s"
+		if b, err := os.ReadFile(filepath.Join("/sys/class/net", iface.Name, "speed")); err == nil {
+			s := strings.TrimSpace(string(b))
+			if s != "" && s != "-1" {
+				n.Speed = s + "Mb/s"
 			}
 		}
 		out = append(out, n)

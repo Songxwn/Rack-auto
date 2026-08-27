@@ -86,6 +86,7 @@ type Inventory struct {
 	MemoryMB       int    `json:"memory_mb"`
 	Disks          []Disk `json:"disks"`
 	NICs           []NIC  `json:"nics"`
+	GPUs           []GPU  `json:"gpus,omitempty"`
 	BMC            string `json:"bmc,omitempty"`
 	Kernel         string `json:"kernel"`
 	UptimeSec      int64  `json:"uptime_sec"`
@@ -199,12 +200,22 @@ type Disk struct {
 }
 
 type NIC struct {
-	Name  string   `json:"name"`
-	MAC   string   `json:"mac"`
-	IPs   []string `json:"ips"`
-	MTU   int      `json:"mtu"`
-	Up    bool     `json:"up"`
-	Speed string   `json:"speed"`
+	Name      string   `json:"name"`
+	MAC       string   `json:"mac"`
+	IPs       []string `json:"ips"`
+	MTU       int      `json:"mtu"`
+	Up        bool     `json:"up"` // link/carrier up when readable from sysfs
+	Speed     string   `json:"speed"`
+	OperState string   `json:"oper_state,omitempty"` // sysfs operstate: up/down/dormant/...
+}
+
+type GPU struct {
+	Index  int    `json:"index"`
+	Vendor string `json:"vendor"`
+	Model  string `json:"model"`
+	PCIID  string `json:"pci_id,omitempty"` // e.g. 10de:2204
+	Driver string `json:"driver,omitempty"`
+	Bus    string `json:"bus,omitempty"` // PCI address 0000:3b:00.0
 }
 
 type Image struct {

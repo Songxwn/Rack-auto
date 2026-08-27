@@ -280,7 +280,9 @@ async function machineDetail(id) {
     <h4>${t("m.disks")}</h4>
     ${(inv.disks || []).map(d => `<div class="hint mono">${escapeHtml(d.path)} ${fmtBytes(d.size_b)} ${escapeHtml(d.model || "")}${d.serial ? " SN " + escapeHtml(d.serial) : ""}</div>`).join("") || "<div class='hint'>-</div>"}
     <h4>${t("m.nics")}</h4>
-    ${(inv.nics || []).map(n => `<div class="hint mono">${escapeHtml(n.name)} ${escapeHtml(n.mac)} ${escapeHtml((n.ips||[]).join(", "))}</div>`).join("") || "<div class='hint'>-</div>"}
+    ${(inv.nics || []).map(n => `<div class="hint mono">${escapeHtml(formatNicLine(n))}</div>`).join("") || "<div class='hint'>-</div>"}
+    <h4>${t("m.gpus")}</h4>
+    ${(inv.gpus || []).map(g => `<div class="hint mono">${escapeHtml(formatGpuLine(g))}</div>`).join("") || `<div class="hint">${t("m.noGpu")}</div>`}
   `);
   $("#md-install").onclick = () => startInstall(id);
   $("#md-detect").onclick = async () => {
@@ -307,6 +309,56 @@ async function machineDetail(id) {
   };
 }
 
+function formatNicLink(n) {
+  if (!n) return "DOWN";
+  const link = n.up ? "UP" : "DOWN";
+  if (n.up && n.speed) return link + " · " + n.speed;
+  if (!n.up && n.oper_state && n.oper_state !== "down") return link + " · " + n.oper_state;
+  return link;
+}
+
+function formatNicLine(n) {
+  const bits = [n.name || "?", formatNicLink(n)];
+  if (n.mac) bits.push(n.mac);
+  const ips = (n.ips || []).join(", ");
+  if (ips) bits.push(ips);
+  return bits.join(" · ");
+}
+
+function formatGpuLine(g) {
+  const bits = [];
+  if (g.vendor) bits.push(g.vendor);
+  bits.push(g.model || g.pci_id || "GPU");
+  if (g.pci_id && g.model && !String(g.model).includes(g.pci_id)) bits.push(g.pci_id);
+  if (g.bus) bits.push(g.bus);
+  if (g.driver) bits.push(g.driver);
+  return bits.join(" · ");
+}
+
+function nicInvLabel(n) {
+  return `${n.name} · ${n.mac || ""} · ${formatNicLink(n)}`.replace(/\s+·\s+·/g, " · ").trim();
+}
+
+function renderInvProbe(m) {
+  const inv = (m && m.inventory) || {};
+  const nics = machineNics(m);
+  const gpus = inv.gpus || [];
+  if (!nics.length && !gpus.length) {
+    return `<p class="hint">${t("in.probeEmpty")}</p>`;
+  }
+  const nicLines = nics.length
+    ? nics.map(n => `<div class="hint mono">${escapeHtml(formatNicLine(n))}</div>`).join("")
+    : `<div class="hint">${t("in.noNicInv")}</div>`;
+  const gpuLines = gpus.length
+    ? gpus.map(g => `<div class="hint mono">${escapeHtml(formatGpuLine(g))}</div>`).join("")
+    : `<div class="hint">${t("m.noGpu")}</div>`;
+  return `<div class="panel" style="margin:10px 0;padding:10px 12px">
+    <div class="hint" style="margin-bottom:6px">${t("in.probeTitle")}</div>
+    <div style="margin-bottom:8px"><strong>${t("m.nics")}</strong>${nicLines}</div>
+    <div><strong>${t("m.gpus")}</strong>${gpuLines}</div>
+  </div>`;
+}
+
 function productLine(inv) {
   if (!inv) return "";
   const v = (inv.vendor || "").trim();
@@ -318,7 +370,16 @@ function productLine(inv) {
 function hwCell(m) {
   const inv = (m && m.inventory) || {};
   const line = productLine(inv);
-  const specs = inv.cpus || inv.memory_mb ? `${inv.cpus || 0}C / ${inv.memory_mb || 0}MB / ${(inv.disks || []).length} disks` : "";
+  const nics = inv.nics || [];
+  const upN = nics.filter(n => n.up).length;
+  const nicBit = nics.length ? `${upN}/${nics.length} NIC UP` : "";
+  const gpus = inv.gpus || [];
+  const gpuBit = gpus.length ? (gpus.length === 1 ? (gpus[0].model || "1 GPU") : `${gpus.length} GPUs`) : "";
+  const specsParts = [];
+  if (inv.cpus || inv.memory_mb) specsParts.push(`${inv.cpus || 0}C / ${inv.memory_mb || 0}MB / ${(inv.disks || []).length} disks`);
+  if (nicBit) specsParts.push(nicBit);
+  if (gpuBit) specsParts.push(gpuBit);
+  const specs = specsParts.join(" · ");
   const top = line ? escapeHtml(line) : (specs ? `<span class="hint">${escapeHtml(specs)}</span>` : `<span class="hint">-</span>`);
   const sn = inv.serial ? `<div class="hint mono">SN ${escapeHtml(inv.serial)}</div>` : "";
   const sub = line && specs ? `<div class="hint">${escapeHtml(specs)}</div>` : "";
@@ -348,6 +409,14 @@ function machineHint(m) {
   if (line) bits.push(line);
   if (inv.serial) bits.push("SN " + inv.serial);
   bits.push(t("m.hintInv", { cpu: inv.cpus || 0, mem: inv.memory_mb || 0, disks: (inv.disks || []).length }));
+  const nics = inv.nics || [];
+  if (nics.length) {
+    const upN = nics.filter(n => n.up).length;
+    bits.push(t("m.hintNics", { up: upN, n: nics.length }));
+  }
+  const gpus = inv.gpus || [];
+  if (gpus.length === 1) bits.push(gpus[0].model || gpus[0].pci_id || "GPU");
+  else if (gpus.length > 1) bits.push(t("m.hintGpus", { n: gpus.length }));
   return bits.join(" · ");
 }
 
@@ -1226,7 +1295,7 @@ function renderNicRow(n, i, invNics, allNics) {
   const kind = n.kind || "ethernet";
   const staticOn = n.method === "static";
   const nicOpts = invNics.map(x => {
-    const lab = `${x.name} · ${x.mac || ""} ${x.up ? "· UP" : ""}`.trim();
+    const lab = nicInvLabel(x);
     return `<option value="${escapeHtml(x.name)}" ${x.name === n.name ? "selected" : ""}>${escapeHtml(lab)}</option>`;
   }).join("");
   const parents = [];
@@ -1258,7 +1327,7 @@ function renderNicRow(n, i, invNics, allNics) {
       <div><label>${t("in.addrGet")}</label>${methodSel}</div>
     </div>
     <div class="full" style="margin-top:8px"><label>${t("in.members")}</label>
-      <div class="member-list">${invNics.length ? invNics.map(x => `<label><input type="checkbox" class="n-member" value="${escapeHtml(x.name)}" ${members.includes(x.name) ? "checked" : ""}> ${escapeHtml(x.name)}${x.mac ? " · " + escapeHtml(x.mac) : ""}</label>`).join("") : `<span class="hint">${t("in.noNicInv")}</span>`}</div>
+      <div class="member-list">${invNics.length ? invNics.map(x => `<label><input type="checkbox" class="n-member" value="${escapeHtml(x.name)}" ${members.includes(x.name) ? "checked" : ""}> ${escapeHtml(nicInvLabel(x))}</label>`).join("") : `<span class="hint">${t("in.noNicInv")}</span>`}</div>
     </div>
     ${staticBox}`;
   } else if (kind === "vlan") {
@@ -1488,6 +1557,7 @@ function renderInstall() {
           <button type="button" class="ghost" id="in-add-nic">${t("in.addNic")}</button>
         </div>
       </div>
+      ${renderInvProbe(m)}
       <div id="in-nics-box">${(d.nics.length ? d.nics.filter(n => (n.kind || "ethernet") === "ethernet") : [blankNic()]).map((n, i) => renderNicRow({ ...n, kind: "ethernet" }, i, nics, d.nics)).join("")}</div>
       <p class="hint">${t("in.winNetHint")}</p>
     `;
@@ -1516,6 +1586,7 @@ function renderInstall() {
           <button type="button" class="ghost" id="in-add-vlan">${t("in.addVlan")}</button>
         </div>
       </div>
+      ${renderInvProbe(m)}
       <div id="in-nics-box">${(d.nics.length ? d.nics : [blankNic()]).map((n, i) => renderNicRow(n, i, nics, d.nics)).join("")}</div>
       <p class="hint">${nics.length ? t("in.netHintInv") : t("in.netHintDhcp")}${t("in.netHintBond")}</p>
     `;
