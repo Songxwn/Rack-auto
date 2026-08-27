@@ -172,7 +172,7 @@ func (s *Service) startDHCPLocked() error {
 	s.dhcpErr = ""
 	s.dhcpSince = time.Now().UTC()
 	go s.serveDHCP(srv, d.Interface)
-	log.Printf("DHCP on %s listen %s  pool %s-%s  next-server %s", d.Interface, laddr, d.RangeStart, d.RangeEnd, serverIP)
+	log.Printf("DHCP on %s listen %s  pool %s-%s  next-server %s  pxe_only=%v", d.Interface, laddr, d.RangeStart, d.RangeEnd, serverIP, d.PXEOnlyEnabled())
 	return nil
 }
 
@@ -220,6 +220,9 @@ func (s *Service) dhcpHandler(d config.DHCP, serverIP net.IP, mask net.IPMask, l
 		if mt != dhcpv4.MessageTypeDiscover && mt != dhcpv4.MessageTypeRequest {
 			return
 		}
+		if d.PXEOnlyEnabled() && !IsPXEClient(m) {
+			return
+		}
 		ip := leases.Assign(m.ClientHWAddr)
 		filename := BootFilename(m)
 		modifiers := []dhcpv4.Modifier{
@@ -247,6 +250,7 @@ func (s *Service) dhcpHandler(d config.DHCP, serverIP net.IP, mask net.IPMask, l
 		} else {
 			reply.UpdateOption(dhcpv4.OptMessageType(dhcpv4.MessageTypeAck))
 		}
+		log.Printf("DHCP %s %s -> %s boot=%s", mt, m.ClientHWAddr, ip, filename)
 		_, _ = conn.WriteTo(reply.ToBytes(), peer)
 	}
 }
@@ -281,6 +285,41 @@ func IsIPXEClient(m *dhcpv4.DHCPv4) bool {
 		return true
 	}
 	return m.GetOneOption(dhcpv4.OptionEtherboot) != nil
+}
+
+// IsPXEClient reports whether the packet looks like network boot (PXE / iPXE / HTTP boot).
+// Intentionally broad so firmware that omits Option 60 still gets an Offer with bootfile.
+func IsPXEClient(m *dhcpv4.DHCPv4) bool {
+	if m == nil {
+		return false
+	}
+	if IsIPXEClient(m) {
+		return true
+	}
+	ci := strings.ToLower(m.ClassIdentifier())
+	if strings.Contains(ci, "pxeclient") || strings.Contains(ci, "httpclient") {
+		return true
+	}
+	if len(m.ClientArch()) > 0 {
+		return true
+	}
+	if m.GetOneOption(dhcpv4.OptionClientNetworkInterfaceIdentifier) != nil {
+		return true
+	}
+	if m.GetOneOption(dhcpv4.OptionClientMachineIdentifier) != nil {
+		return true
+	}
+	if strings.TrimSpace(m.BootFileName) != "" {
+		return true
+	}
+	// BIOS/UEFI PXE almost always asks for TFTP server / bootfile in the PRL.
+	for _, code := range m.ParameterRequestList() {
+		switch code {
+		case dhcpv4.OptionTFTPServerName, dhcpv4.OptionBootfileName:
+			return true
+		}
+	}
+	return false
 }
 
 func IPXEChainURL(nextServer net.IP, publicURL, listen string) string {

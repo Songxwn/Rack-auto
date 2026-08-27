@@ -22,6 +22,17 @@ func (d *DHCP) Normalize() {
 	d.NextServer = strings.TrimSpace(d.NextServer)
 }
 
+func (d DHCP) PXEOnlyEnabled() bool {
+	if d.PXEOnly == nil {
+		return true
+	}
+	return *d.PXEOnly
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func (d DHCP) Validate() error {
 	d.Normalize()
 	if !d.Enabled {

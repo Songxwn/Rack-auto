@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
+	"github.com/insomniacslk/dhcp/iana"
 )
 
 func TestIPXEChainURL(t *testing.T) {
@@ -48,6 +49,40 @@ func TestIsIPXEClient(t *testing.T) {
 	ipxe, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithUserClass("iPXE", false))
 	if !IsIPXEClient(ipxe) {
 		t.Fatal("user-class iPXE")
+	}
+}
+
+func TestIsPXEClient(t *testing.T) {
+	mac, _ := net.ParseMAC("bc:24:11:66:6b:a9")
+
+	plain, _ := dhcpv4.NewDiscovery(mac)
+	if IsPXEClient(plain) {
+		t.Fatal("plain DHCP without boot options should not look like PXE")
+	}
+
+	pxe, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient:Arch:00000:UNDI:002001")))
+	if !IsPXEClient(pxe) {
+		t.Fatal("PXEClient vendor class")
+	}
+
+	httpBoot, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithOption(dhcpv4.OptClassIdentifier("HTTPClient")))
+	if !IsPXEClient(httpBoot) {
+		t.Fatal("HTTPClient")
+	}
+
+	arch, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithOption(dhcpv4.OptClientArch(iana.EFI_X86_64)))
+	if !IsPXEClient(arch) {
+		t.Fatal("client arch option")
+	}
+
+	prl, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithRequestedOptions(dhcpv4.OptionBootfileName, dhcpv4.OptionTFTPServerName))
+	if !IsPXEClient(prl) {
+		t.Fatal("parameter request list asks for bootfile")
+	}
+
+	ipxe, _ := dhcpv4.NewDiscovery(mac, dhcpv4.WithUserClass("iPXE", false))
+	if !IsPXEClient(ipxe) {
+		t.Fatal("iPXE is PXE")
 	}
 }
 

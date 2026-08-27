@@ -1900,6 +1900,8 @@ async function renderBoot() {
       </div>
       <p class="hint">${t("boot.dhcpHint")}</p>
       <label><input type="checkbox" id="d-on" ${dhcp.enabled ? "checked" : ""}> ${t("boot.enable")}</label>
+      <label><input type="checkbox" id="d-pxe-only" ${dhcp.pxe_only !== false ? "checked" : ""}> ${t("boot.pxeOnly")}</label>
+      <p class="hint">${t("boot.pxeOnlyHint")}</p>
       <label>${t("boot.if")}</label>
       <select id="d-if">
         <option value="">${t("boot.pickIf")}</option>
@@ -1978,6 +1980,7 @@ dhcp-boot=tag:!ipxe,undionly.kpxe
   }
   const collectDHCP = () => ({
     enabled: $("#d-on").checked,
+    pxe_only: $("#d-pxe-only").checked,
     interface: $("#d-if").value,
     subnet: $("#d-subnet").value.trim(),
     router: $("#d-gw").value.trim(),
