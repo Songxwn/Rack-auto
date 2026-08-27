@@ -1900,7 +1900,7 @@ async function renderBoot() {
       </div>
       <p class="hint">${t("boot.dhcpHint")}</p>
       <label><input type="checkbox" id="d-on" ${dhcp.enabled ? "checked" : ""}> ${t("boot.enable")}</label>
-      <label><input type="checkbox" id="d-pxe-only" ${dhcp.pxe_only !== false ? "checked" : ""}> ${t("boot.pxeOnly")}</label>
+      <label><input type="checkbox" id="d-pxe-only" ${dhcp.pxe_only === true ? "checked" : ""}> ${t("boot.pxeOnly")}</label>
       <p class="hint">${t("boot.pxeOnlyHint")}</p>
       <label>${t("boot.if")}</label>
       <select id="d-if">

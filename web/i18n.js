@@ -308,7 +308,7 @@ const DICT = {
   "boot.dhcpHint": ["选择连接装机交换机 / PXE 网段的<strong>接入网卡</strong>，DHCP 只在这块网卡上应答。需要绑定 UDP 67，Linux 请用 root，Windows 请以管理员运行。", "Pick the <strong>uplink NIC</strong> on the install / PXE segment. DHCP answers only on that NIC. UDP 67 is required: root on Linux, Administrator on Windows."],
   "boot.enable": ["启用内置 DHCP", "Enable built-in DHCP"],
   "boot.pxeOnly": ["仅响应 PXE 请求", "PXE requests only"],
-  "boot.pxeOnlyHint": ["默认开启：只应答 PXE / iPXE / HTTP Boot（Option 60/93/97，或请求 bootfile 的客户端），普通笔记本不会拿到地址。空网段只有本机 DHCP、需要给所有设备发地址时，请关闭。", "On by default: answer only PXE / iPXE / HTTP Boot (Option 60/93/97, or clients requesting a bootfile). Ordinary laptops get no lease. Turn off on an empty lab segment where this is the only DHCP."],
+  "boot.pxeOnlyHint": ["默认关闭：对所有 DHCP 客户端应答（与 v0.4.50 相同）。勾选后只应答 PXE / iPXE / HTTP Boot，普通笔记本不会拿到地址；与机房现有 DHCP 同网段时可开启。", "Off by default: answer all DHCP clients (same as v0.4.50). When checked, only PXE / iPXE / HTTP Boot get leases; ordinary laptops are ignored. Enable to coexist with an existing DHCP on the same VLAN."],
   "boot.if": ["接入网卡", "Uplink NIC"],
   "boot.pickIf": ["（选择网卡）", "(choose a NIC)"],
   "boot.noip": ["无 IPv4", "no IPv4"],

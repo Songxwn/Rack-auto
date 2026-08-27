@@ -31,7 +31,8 @@ type DHCP struct {
 	DNS        string `yaml:"dns" json:"dns"`
 	LeaseSec   int    `yaml:"lease_sec" json:"lease_sec"`
 	NextServer string `yaml:"next_server" json:"next_server"`
-	// PXEOnly: when nil, defaults to true — only answer PXE / iPXE / HTTP boot clients.
+	// PXEOnly: when nil, defaults to false — answer all DHCP clients.
+	// Set true to ignore non-PXE clients (Option 60/93/97, iPXE, bootfile PRL).
 	PXEOnly *bool `yaml:"pxe_only,omitempty" json:"pxe_only,omitempty"`
 }
 
@@ -64,7 +65,7 @@ func Default() Config {
 			ListenAddr: "0.0.0.0:67",
 			LeaseSec:   3600,
 			DNS:        "8.8.8.8",
-			PXEOnly:    boolPtr(true),
+			PXEOnly:    boolPtr(false),
 		},
 		Bootstrap: Boot{UbuntuRelease: "26.04", UbuntuArches: []string{"x86_64"}},
 	}

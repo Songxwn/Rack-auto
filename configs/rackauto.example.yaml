@@ -16,7 +16,7 @@ dhcp:
   dns: "8.8.8.8"
   lease_sec: 3600
   next_server: ""        # 空则用接入网卡 IPv4
-  pxe_only: true         # 默认只响应 PXE/iPXE；空网段独占 DHCP 时可设为 false
+  pxe_only: false        # 默认全量应答；与现有 DHCP 同网段共存时设为 true（只响应 PXE）
 
 bootstrap:
   ubuntu_release: "26.04"          # 最新稳定版 LTS live-server，用作内存 RAMOS

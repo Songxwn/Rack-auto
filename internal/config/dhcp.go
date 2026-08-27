@@ -24,7 +24,7 @@ func (d *DHCP) Normalize() {
 
 func (d DHCP) PXEOnlyEnabled() bool {
 	if d.PXEOnly == nil {
-		return true
+		return false
 	}
 	return *d.PXEOnly
 }
