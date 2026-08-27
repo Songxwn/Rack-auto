@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}"
  && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.Version=${VERSION}" -o /out/agent-aarch64 ./cmd/rackauto-agent
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata ipmitool
+RUN apk add --no-cache ca-certificates tzdata ipmitool wimlib
 WORKDIR /var/lib/rackauto
 COPY --from=build /out/rackauto /usr/local/bin/rackauto
 COPY --from=build /out/agent-x86_64 /var/lib/rackauto/agent/x86_64/rackauto-agent

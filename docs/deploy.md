@@ -117,6 +117,8 @@ fi
 sudo install -m 0755 "$CTRL" /opt/rackauto/bin/rackauto
 sudo install -m 0755 "$AGENT" /opt/rackauto/data/agent/x86_64/rackauto-agent
 [ -f winpe-curl.exe ] && sudo install -m 0755 winpe-curl.exe /opt/rackauto/bin/winpe-curl.exe
+# Windows Server ISO：抽出 boot.wim 后需改 TargetPath（wimboot）
+sudo apt-get update && sudo apt-get install -y wimtools
 ```
 
 ARM 控制面把 `amd64` 换成 `arm64`，Agent 目录用 `data/agent/aarch64/`。Windows 压缩包是 `.zip`，只适合看 Web，PXE 请换 Linux。
@@ -448,6 +450,15 @@ Windows Server **不能**走 RAMOS / qcow2 / cloud-init。下发任务后，该�
 
 只支持 **x86_64**。官方 WinPE **没有** `curl.exe` / `certutil` / `bitsadmin`。**v0.4.36+** 会把 Release 里的 `winpe-curl.exe` 经 wimboot 压进 `X:\Windows\System32\curl.exe`（静态 Go 程序，支持装机脚本用到的那几个 curl 参数）。控制面启动时把它拷到 `data/winpe/curl.exe`。升级时请把 `winpe-curl.exe` 放到 `rackauto` 旁边。
 
+官方 ISO 的 `boot.wim` 是 Setup 环境，默认 SYSTEMROOT 在 `X:\$windows.~bt\Windows`，和 wimboot 的 `X:\Windows` 冲突。**v0.4.47+** 会在抽出 `boot.wim` 后自动改 TargetPath（等同 `DISM /Set-TargetPath:X:\`）。控制面 Linux 需安装 **wimtools**：
+
+```bash
+sudo apt-get install -y wimtools   # Debian / Ubuntu
+# Alpine 镜像已带 wimlib
+```
+
+已上传过的 ISO：升级后在镜像页点一次「检测」，或直接再 PXE（下发 boot.wim 时也会补修）。
+
 **向导差异**
 
 - 登录用户默认 `Administrator`，**密码必填**（写入应答文件）。没有 SSH 公钥。
@@ -678,6 +689,8 @@ sudo journalctl -u rackauto -f
 
 **都要换。** 只换控制面时，网页版本号会变，装机仍走旧 Agent。Windows 装机还需要 `winpe-curl.exe` 压进 PE。已停在 RAMOS 里的机器要**重新 PXE**，才会下载到新 Agent。
 
+从 **v0.4.47** 起，Windows ISO 还需要控制面有 `wimlib-imagex`（`sudo apt-get install -y wimtools`），用来把 Setup `boot.wim` 的 TargetPath 改成适合 wimboot。升级后建议对已有 Windows 镜像点一次「检测」。
+
 默认安装路径：
 
 ```text
@@ -895,6 +908,9 @@ v0.4.5 为了先注册把 `apt-get` 放到后台，装机时可能还没装上 `
 
 **Windows 装机进了 Ubuntu RAMOS**  
 该 MAC 没有 pending/running 的 Windows 任务，或控制面还是旧版本。确认任务还在「等待 PXE 进入 Windows PE」，并升级到带 WinPE 的 Release 后再 PXE。
+
+**WinPE 报 SYSTEMROOT 是 `X:\$windows.~bt\Windows`**  
+官方 Setup `boot.wim` 与 wimboot 路径不一致。请用 **v0.4.47+**，控制面安装 `wimtools`（`apt install -y wimtools`）。升级后对镜像点「检测」或再 PXE 一次。
 
 **Windows PE 一进就重启**  
 官方 ISO 的 `boot.wim` 会启动 Windows 安装程序；找不到光盘就会立刻重启。请用 **v0.4.32+** 的 `rackauto`（不必重跑 bootstrap），任务仍在等待 WinPE 时再 PXE 一次。成功时任务日志里应很快出现 `winpe_started`。

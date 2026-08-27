@@ -16,6 +16,7 @@ import (
 	"github.com/Songxwn/Rack-auto/internal/provision"
 	"github.com/Songxwn/Rack-auto/internal/store"
 	"github.com/Songxwn/Rack-auto/internal/winpecurl"
+	"github.com/Songxwn/Rack-auto/internal/winpefix"
 )
 
 func (s *Server) coerceWindowsImage(img *model.Image) {
@@ -132,6 +133,13 @@ func (s *Server) materializeWindows(img *model.Image, src string) {
 
 	if st, err := os.Stat(bootDst); err == nil && st.Size() > 0 {
 		in.BootWIM = "win/" + img.ID + "/boot.wim"
+		if err := winpefix.FixBootWIM(bootDst); err != nil {
+			in.Warnings = append(in.Warnings, "WinPE TargetPath: "+err.Error())
+			if in.Status == "ok" {
+				in.Status = "warn"
+			}
+			log.Printf("WinPE TargetPath fix %s: %v", bootDst, err)
+		}
 	} else if in.BootWIM == "" {
 		in.Warnings = append(in.Warnings, "WinPE boot.wim missing; upload a Windows Server ISO of the same generation")
 		if in.Status == "ok" {
@@ -161,14 +169,20 @@ func (s *Server) borrowBootWIM(version, dest string) error {
 			}
 		}
 		if version != "" && img.OSVersion == version {
-			return copyFile(p, dest)
+			if err := copyFile(p, dest); err != nil {
+				return err
+			}
+			return winpefix.FixBootWIM(dest)
 		}
 		if fallback == "" {
 			fallback = p
 		}
 	}
 	if fallback != "" {
-		return copyFile(fallback, dest)
+		if err := copyFile(fallback, dest); err != nil {
+			return err
+		}
+		return winpefix.FixBootWIM(dest)
 	}
 	return fmt.Errorf("no WinPE boot.wim on the control plane; upload a Windows Server ISO")
 }
@@ -268,6 +282,9 @@ func (s *Server) serveWinPayload(w http.ResponseWriter, r *http.Request) {
 		if _, err := os.Stat(p); err != nil {
 			http.NotFound(w, r)
 			return
+		}
+		if err := winpefix.FixBootWIM(p); err != nil {
+			log.Printf("WinPE TargetPath fix %s: %v", p, err)
 		}
 		http.ServeFile(w, r, p)
 	case "install.wim", "install.esd":
