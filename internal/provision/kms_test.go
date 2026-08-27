@@ -55,7 +55,9 @@ func TestUnattendKMSAndDefender(t *testing.T) {
 		"slmgr.vbs /ato",
 		"<ProductKey>WX4NM-KYWYW-QJJR4-XV3QB-6VM33</ProductKey>",
 		"<Key>WX4NM-KYWYW-QJJR4-XV3QB-6VM33</Key>",
-		"Uninstall-WindowsFeature -Name Windows-Defender",
+		"TamperProtection",
+		"Uninstall-WindowsFeature",
+		"Disable-Feature /FeatureName:Windows-Defender-Features",
 	} {
 		if !strings.Contains(xml, want) {
 			t.Fatalf("missing %q in unattend:\n%s", want, xml)
@@ -70,6 +72,9 @@ func TestUnattendKMSAndDefender(t *testing.T) {
 	media := provision.WindowsJobMedia("http://10.0.0.1:8080", "t", "job1", "aa:bb:cc:dd:ee:ff", spec, img)
 	if !strings.Contains(media.Install, "/Set-ProductKey:WX4NM-KYWYW-QJJR4-XV3QB-6VM33") {
 		t.Fatal(media.Install)
+	}
+	if !strings.Contains(media.Install, "/Disable-Feature /FeatureName:Windows-Defender") {
+		t.Fatal("install.cmd must disable Defender offline for Server 2022 compatibility")
 	}
 	if provision.EffectiveProductKey(model.InstallSpec{ProductKey: "CUSTOM", KMSKeyID: "2022-standard"}) != "CUSTOM" {
 		t.Fatal("custom key should win")
