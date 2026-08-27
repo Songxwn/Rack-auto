@@ -230,7 +230,7 @@ const DICT = {
   "in.kmsHostPh": ["kms.songxwn.com", "kms.songxwn.com"],
   "in.kmsHostHint": ["可选。填了会在首次进桌面后立刻 slmgr /skms 与 /ato；选内置 GVLK 时会预填 kms.songxwn.com。", "Optional. Right after first desktop logon, runs slmgr /skms and /ato. Choosing a GVLK prefills kms.songxwn.com."],
   "in.rmDefender": ["删除 Microsoft Defender", "Remove Microsoft Defender"],
-  "in.rmDefenderHint": ["默认不删除。勾选后首次登录卸载 Windows-Defender 功能（可能需要再重启一次）。", "Off by default. When checked, uninstalls Windows-Defender at first logon (may need another reboot)."],
+  "in.rmDefenderHint": ["默认不删除。勾选后 WinPE 离线禁用 Defender（兼容 2022），进桌面再兜底卸载。", "Off by default. When checked, disables Defender offline in WinPE (needed on 2022), then finishes at first logon."],
   "in.disk": ["目标磁盘", "Target disk"],
   "in.disk0": ["WinPE 磁盘 0（通常是第一块盘）", "WinPE disk 0 (usually the first disk)"],
   "in.diskWinHint": ["Windows PE 用 diskpart 盘号，不是 Linux 的 /dev/sda。/dev/sda ≈ disk 0，/dev/sdb ≈ disk 1。选错会清错盘。", "Windows PE uses diskpart disk numbers, not /dev/sda. /dev/sda ≈ disk 0, /dev/sdb ≈ disk 1. The wrong disk will be wiped."],

@@ -465,7 +465,7 @@ sudo apt-get install -y wimtools   # Debian / Ubuntu
 - 第 3 步选 WIM edition（默认偏向 Standard 带桌面，而不是 Core）、产品密钥、目标磁盘、DHCP 或静态 IP。
 - 产品密钥三选一：**不填（评估版）**、**手动填写**、或选微软公开的 **KMS 客户端密钥 (GVLK)**（2019 / 2022 / 2025 的 Standard / Datacenter / Essentials / Azure）。
 - **KMS 主机**可选，默认占位 `kms.songxwn.com`。有密钥时：WinPE 里 `DISM /Set-ProductKey` 写入离线系统，应答文件 specialize 再嵌一层，首次进桌面再用 `slmgr /ipk` / `/skms` / `/ato` 兜底。
-- **删除 Microsoft Defender** 默认关闭；勾选后首次登录卸载 Defender 功能。
+- **删除 Microsoft Defender** 默认关闭。勾选后：WinPE 里对已应用的系统做离线 `DISM /Disable-Feature`（2022 必需，避免 Tamper Protection 拦住）；首次进桌面再关实时防护并用 `Uninstall-WindowsFeature` / 在线 DISM 兜底。
 - **不要**画 Linux 分区，也 **不要** 配 Bond / VLAN。
 - 主机名最长 15 个 ASCII 字符。时区 `Asia/Shanghai` 会写成 `China Standard Time`。应答文件语言保持 **en-US**，避免英文 ISO 被强行 zh-CN 后安装器卡住。
 - 默认打开远程桌面。

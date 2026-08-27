@@ -200,14 +200,14 @@ func WindowsJobMedia(base, token, jobID, mac string, spec model.InstallSpec, img
 		Startnet:     StartnetCMD(),
 		Winpeshl:     WinpeshlINI(),
 		Diskpart:     DiskpartScript(spec.Firmware, WinPEDiskNumber(spec.Disk)),
-		Install:      windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL, idx, bcd, spec.Reboot, sanitizeProductKey(EffectiveProductKey(spec))),
+		Install:      windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL, idx, bcd, spec.Reboot, sanitizeProductKey(EffectiveProductKey(spec)), spec.RemoveDefender),
 		Unattend:     UnattendXML(spec, mac),
 		CompleteJSON: string(okBody) + "\n",
 		FailJSON:     string(failBody) + "\n",
 	}
 }
 
-func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL string, index int, bcd string, reboot bool, productKey string) string {
+func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL string, index int, bcd string, reboot bool, productKey string, removeDefender bool) string {
 	tok := batEscape(token)
 	var b strings.Builder
 	b.WriteString("@echo off\r\nsetlocal EnableExtensions\r\n")
@@ -234,6 +234,15 @@ func windowsInstallCMD(token, wimURL, unattendURL, progressURL, completeURL stri
 		b.WriteString("call :report 55 embedding_product_key\r\n")
 		fmt.Fprintf(&b, "dism.exe /Image:W:\\ /Set-ProductKey:%s\r\n", productKey)
 		b.WriteString("if errorlevel 1 echo WARN Set-ProductKey failed, will retry at first logon\r\n")
+	}
+	if removeDefender {
+		// Offline removal before first boot — required on Server 2022 where Tamper Protection
+		// blocks Uninstall-WindowsFeature at first logon (2025 is often more permissive).
+		b.WriteString("call :report 60 removing_defender\r\n")
+		b.WriteString("dism.exe /Image:W:\\ /Disable-Feature /FeatureName:Windows-Defender-Gui /Remove /NoRestart >nul 2>nul\r\n")
+		b.WriteString("dism.exe /Image:W:\\ /Disable-Feature /FeatureName:Windows-Defender /Remove /NoRestart >nul 2>nul\r\n")
+		b.WriteString("dism.exe /Image:W:\\ /Disable-Feature /FeatureName:Windows-Defender-Features /Remove /NoRestart >nul 2>nul\r\n")
+		b.WriteString("echo Defender features disabled offline (Gui/Defender/Features)\r\n")
 	}
 	b.WriteString("call :report 80 bootloader\r\n")
 	fmt.Fprintf(&b, "bcdboot W:\\Windows /s S: /f %s\r\n", bcd)
@@ -438,8 +447,16 @@ func buildFirstLogonCommands(spec model.InstallSpec) string {
 		)
 	}
 	if spec.RemoveDefender {
+		// Online fallback (Server 2022 often needs Tamper Protection off first).
 		cmds = append(cmds,
-			`powershell.exe -NoProfile -WindowStyle Hidden -Command "Try { Uninstall-WindowsFeature -Name Windows-Defender -IncludeManagementTools -ErrorAction Stop } Catch {}; Try { Uninstall-WindowsFeature -Name Windows-Defender-Features -IncludeManagementTools -ErrorAction Stop } Catch {}"`,
+			`cmd.exe /c reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender" /v DisableAntiSpyware /t REG_DWORD /d 1 /f`,
+			`cmd.exe /c reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Features" /v TamperProtection /t REG_DWORD /d 0 /f`,
+			`cmd.exe /c net stop WinDefend /y`,
+			`cmd.exe /c net stop Sense /y`,
+			`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Import-Module ServerManager -ErrorAction SilentlyContinue; foreach($n in @('Windows-Defender-Gui','Windows-Defender','Windows-Defender-Features')){ Uninstall-WindowsFeature -Name $n -IncludeManagementTools -Remove -ErrorAction SilentlyContinue }"`,
+			`cmd.exe /c dism.exe /Online /Disable-Feature /FeatureName:Windows-Defender-Gui /Remove /NoRestart`,
+			`cmd.exe /c dism.exe /Online /Disable-Feature /FeatureName:Windows-Defender /Remove /NoRestart`,
+			`cmd.exe /c dism.exe /Online /Disable-Feature /FeatureName:Windows-Defender-Features /Remove /NoRestart`,
 		)
 	}
 	var b strings.Builder
