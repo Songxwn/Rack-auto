@@ -181,8 +181,8 @@ func utf16EqualFoldASCII(have, want []byte) bool {
 		return false
 	}
 	for i := 0; i < len(have); i += 2 {
-		a := have[i] | (uint16(have[i+1]) << 8)
-		b := want[i] | (uint16(want[i+1]) << 8)
+		a := uint16(have[i]) | (uint16(have[i+1]) << 8)
+		b := uint16(want[i]) | (uint16(want[i+1]) << 8)
 		if a >= 'A' && a <= 'Z' {
 			a += 'a' - 'A'
 		}
