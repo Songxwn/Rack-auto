@@ -85,6 +85,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/images", s.webAuth(s.listImages))
 	mux.HandleFunc("POST /api/v1/images", s.webAuth(s.createImage))
 	mux.HandleFunc("POST /api/v1/images/upload", s.webAuth(s.uploadImage))
+	mux.HandleFunc("POST /api/v1/images/upload/init", s.webAuth(s.initImageUpload))
+	mux.HandleFunc("GET /api/v1/images/upload/{id}", s.webAuth(s.getImageUpload))
+	mux.HandleFunc("PUT /api/v1/images/upload/{id}/chunk", s.webAuth(s.putImageUploadChunk))
+	mux.HandleFunc("POST /api/v1/images/upload/{id}/complete", s.webAuth(s.completeImageUpload))
+	mux.HandleFunc("DELETE /api/v1/images/upload/{id}", s.webAuth(s.abortImageUpload))
 	mux.HandleFunc("POST /api/v1/images/{id}/inspect", s.webAuth(s.inspectImage))
 	mux.HandleFunc("DELETE /api/v1/images/{id}", s.webAuth(s.deleteImage))
 	mux.Handle("/images/", s.imagesHTTP())
@@ -664,42 +669,94 @@ func (s *Server) createImage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<30)
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	// Legacy single-shot multipart. Prefer chunked /images/upload/init for large ISOs.
+	r.Body = http.MaxBytesReader(w, r.Body, uploadMaxBytes)
+	mr, err := r.MultipartReader()
+	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	f, hdr, err := r.FormFile("file")
-	if err != nil {
+	var (
+		name, kind, osFamily, osVersion string
+		dstName                         string
+		dst                             string
+		out                             *os.File
+		n                               int64
+		gotFile                         bool
+	)
+	defer func() {
+		if out != nil {
+			_ = out.Close()
+		}
+	}()
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		formName := part.FormName()
+		switch formName {
+		case "name":
+			b, _ := io.ReadAll(io.LimitReader(part, 4096))
+			name = strings.TrimSpace(string(b))
+		case "kind":
+			b, _ := io.ReadAll(io.LimitReader(part, 256))
+			kind = strings.TrimSpace(string(b))
+		case "os_family":
+			b, _ := io.ReadAll(io.LimitReader(part, 256))
+			osFamily = strings.TrimSpace(string(b))
+		case "os_version":
+			b, _ := io.ReadAll(io.LimitReader(part, 256))
+			osVersion = strings.TrimSpace(string(b))
+		case "file":
+			if gotFile {
+				http.Error(w, "multiple files", 400)
+				return
+			}
+			gotFile = true
+			fn := filepath.Base(part.FileName())
+			if fn == "" || fn == "." || fn == ".." {
+				http.Error(w, "filename required", 400)
+				return
+			}
+			if name == "" {
+				name = fn
+			}
+			dstName = fmt.Sprintf("%d-%s", time.Now().Unix(), fn)
+			dst = filepath.Join(s.Cfg.ImagesDir(), dstName)
+			out, err = os.Create(dst)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			n, err = io.Copy(out, part)
+			_ = out.Close()
+			out = nil
+			if err != nil {
+				_ = os.Remove(dst)
+				http.Error(w, err.Error(), 500)
+				return
+			}
+		default:
+			_, _ = io.Copy(io.Discard, io.LimitReader(part, 1<<20))
+		}
+	}
+	if !gotFile || dst == "" {
 		http.Error(w, "file required", 400)
 		return
 	}
-	defer f.Close()
-	name := r.FormValue("name")
-	if name == "" {
-		name = hdr.Filename
-	}
-	dstName := fmt.Sprintf("%d-%s", time.Now().Unix(), filepath.Base(hdr.Filename))
-	dst := filepath.Join(s.Cfg.ImagesDir(), dstName)
-	out, err := os.Create(dst)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	n, err := io.Copy(out, f)
-	_ = out.Close()
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
 	img := model.Image{
-		Name:     name,
-		OSFamily:  r.FormValue("os_family"),
-		OSVersion: r.FormValue("os_version"),
-		Kind:      r.FormValue("kind"),
-		URL:      s.Store.Setting("public_url", s.Cfg.PublicURL) + "/images/" + dstName,
-		Filename: dstName,
-		SizeB:    n,
+		Name:      name,
+		OSFamily:  osFamily,
+		OSVersion: osVersion,
+		Kind:      kind,
+		URL:       s.Store.Setting("public_url", s.Cfg.PublicURL) + "/images/" + dstName,
+		Filename:  dstName,
+		SizeB:     n,
 	}
 	if img.Kind == "" {
 		if osprofile.IsWindows(img.OSFamily) {

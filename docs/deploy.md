@@ -409,7 +409,7 @@ Web 同一页底部会按你当前的 `public_url` 生成一份可复制片段�
 - **登记 URL**：例如 Ubuntu 24.04 cloud  
   `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`  
   类型选「云镜像（整盘 qcow2/raw）」
-- **上传文件**：先在上传栏选系统和版本、镜像类型，再选文件。页面会显示进度、速率和剩余时间；传到控制面后会检测分区表和引导。
+- **上传文件**：先在上传栏选系统和版本、镜像类型，再选文件。**大 ISO（5–9GB）自动按 4MB 分片上传**，中断后同一文件可续传；页面显示进度、速率和剩余时间。传到控制面后会检测分区表和引导。
 - **Windows Server 2019–2025**：类型选「Windows Server ISO」，上传官方 ISO。装机链路与 Linux 完全不同，见 [10.5](#105-windows-server-2019-2025)。
 - **自己做镜像**：要用 KVM 装一套再导出 qcow2 时，按 [第 11 节](#11-自己用-kvm-做装机镜像)。BIOS 与 UEFI 各做一张；分区、cloud-init、OpenSSH、扩容工具都必须按那一节的要求。
 

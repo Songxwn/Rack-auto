@@ -154,6 +154,10 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | GET | `/api/v1/os-catalog` | 镜像系统/版本（网卡与分区后端） |
 | GET | `/api/v1/windows/kms-keys` | Windows Server 2019–2025 内置 KMS 客户端密钥 (GVLK) |
 | CRUD | `/api/v1/templates` | 账号 / SSH 密钥模板（装机一键引用） |
+| POST | `/api/v1/images/upload/init` | 大文件分片上传：创建会话 |
+| PUT | `/api/v1/images/upload/{id}/chunk` | 上传分片（`X-Upload-Offset`） |
+| POST | `/api/v1/images/upload/{id}/complete` | 合并分片并检测镜像 |
+| POST | `/api/v1/images/upload` | 小文件整包 multipart（兼容） |
 | POST | `/api/v1/images/{id}/inspect` | 检测已上传镜像的分区表和引导 |
 | POST | `/api/v1/jobs/install` | 装机任务 |
 | POST | `/api/v1/jobs/stress` | 压测任务 |

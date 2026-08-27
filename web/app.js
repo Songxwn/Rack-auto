@@ -390,49 +390,128 @@ function setUploadProgress(p) {
   }
 }
 
-function uploadControlPlaneImage(file, fields) {
+function uploadResumeKey(file) {
+  return "rackauto-up:" + file.name + ":" + file.size + ":" + file.lastModified;
+}
+
+function putUploadChunk(uploadId, offset, blob) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/v1/images/upload");
+    xhr.open("PUT", "/api/v1/images/upload/" + encodeURIComponent(uploadId) + "/chunk");
     xhr.withCredentials = true;
-    let lastT = Date.now();
-    let lastB = 0;
-    let speed = 0;
-    xhr.upload.onprogress = (ev) => {
-      const total = ev.lengthComputable ? ev.total : file.size;
-      const loaded = ev.loaded;
-      const now = Date.now();
-      const dt = (now - lastT) / 1000;
-      if (dt >= 0.25) {
-        speed = (loaded - lastB) / dt;
-        lastT = now;
-        lastB = loaded;
-      }
-      setUploadProgress({ loaded, total, speed, phase: "uploading" });
-    };
-    xhr.upload.onload = () => {
-      setUploadProgress({ loaded: file.size, total: file.size, speed: 0, phase: "inspecting" });
-    };
+    xhr.setRequestHeader("X-Upload-Offset", String(offset));
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.onload = () => {
       if (xhr.status === 401) {
         showLogin(t("login.need"));
         reject(new Error(t("login.need")));
         return;
       }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
-      else reject(new Error(xhr.responseText || ("HTTP " + xhr.status)));
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText || "{}")); }
+        catch (e) { resolve({}); }
+        return;
+      }
+      reject(new Error(xhr.responseText || ("HTTP " + xhr.status)));
     };
     xhr.onerror = () => reject(new Error(t("net.err")));
     xhr.onabort = () => reject(new Error(t("net.abort")));
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("name", fields.name || file.name);
-    fd.append("kind", fields.kind || "");
-    fd.append("os_family", fields.os_family || "");
-    fd.append("os_version", fields.os_version || "");
-    setUploadProgress({ loaded: 0, total: file.size, speed: 0, phase: "uploading" });
-    xhr.send(fd);
+    xhr.send(blob);
   });
+}
+
+async function putUploadChunkRetry(uploadId, offset, blob, retries) {
+  let lastErr;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await putUploadChunk(uploadId, offset, blob);
+    } catch (e) {
+      lastErr = e;
+      if (String(e.message || "").includes("401") || String(e.message || "").includes(t("login.need"))) throw e;
+      await new Promise(r => setTimeout(r, 500 * Math.pow(2, i)));
+    }
+  }
+  throw lastErr || new Error(t("net.err"));
+}
+
+async function uploadControlPlaneImage(file, fields) {
+  const chunkSize = 4 * 1024 * 1024; // 4 MiB — safer through proxies than one multi-GB POST
+  const key = uploadResumeKey(file);
+  let uploadId = "";
+  let received = 0;
+  try {
+    uploadId = sessionStorage.getItem(key) || "";
+  } catch (e) { uploadId = ""; }
+
+  if (uploadId) {
+    try {
+      const st = await api("/images/upload/" + encodeURIComponent(uploadId));
+      if (Number(st.size) === file.size && Number(st.received) >= 0) {
+        received = Number(st.received) || 0;
+      } else {
+        uploadId = "";
+        try { sessionStorage.removeItem(key); } catch (e) {}
+      }
+    } catch (e) {
+      uploadId = "";
+      try { sessionStorage.removeItem(key); } catch (e2) {}
+    }
+  }
+
+  if (!uploadId) {
+    const init = await api("/images/upload/init", {
+      method: "POST",
+      body: JSON.stringify({
+        name: fields.name || file.name,
+        filename: file.name,
+        size: file.size,
+        kind: fields.kind || "",
+        os_family: fields.os_family || "",
+        os_version: fields.os_version || "",
+      }),
+    });
+    uploadId = init.id;
+    received = 0;
+    try { sessionStorage.setItem(key, uploadId); } catch (e) {}
+  }
+
+  let lastT = Date.now();
+  let lastB = received;
+  let speed = 0;
+  setUploadProgress({ loaded: received, total: file.size, speed: 0, phase: "uploading" });
+
+  while (received < file.size) {
+    const end = Math.min(received + chunkSize, file.size);
+    const blob = file.slice(received, end);
+    try {
+      await putUploadChunkRetry(uploadId, received, blob, 5);
+      received = end;
+    } catch (e) {
+      // Realign with server if a chunk was partially accepted or offset drifted.
+      try {
+        const st = await api("/images/upload/" + encodeURIComponent(uploadId));
+        if (Number(st.size) === file.size && Number(st.received) >= 0) {
+          received = Number(st.received) || 0;
+          if (received < file.size) continue;
+          break;
+        }
+      } catch (e2) {}
+      throw e;
+    }
+    const now = Date.now();
+    const dt = (now - lastT) / 1000;
+    if (dt >= 0.25) {
+      speed = (received - lastB) / dt;
+      lastT = now;
+      lastB = received;
+    }
+    setUploadProgress({ loaded: received, total: file.size, speed, phase: "uploading" });
+  }
+
+  setUploadProgress({ loaded: file.size, total: file.size, speed: 0, phase: "inspecting" });
+  const img = await api("/images/upload/" + encodeURIComponent(uploadId) + "/complete", { method: "POST" });
+  try { sessionStorage.removeItem(key); } catch (e) {}
+  return img;
 }
 
 function renderImages() {
