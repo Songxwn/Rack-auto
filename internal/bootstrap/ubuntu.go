@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -343,13 +345,19 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 	fallback := fmt.Sprintf("ubuntu-%s-live-server-%s.iso", rel, debArch)
 	var body string
 	if pin := pinnedMirror(cfg, debArch); !isAutoMirror(pin) {
-		base = ubuntuISOBase(cfg, rel, debArch)
-		fmt.Println("   using configured mirror", base)
-		sumsURL := strings.TrimRight(base, "/") + "/SHA256SUMS"
-		body, err = httpGetBody(hc, sumsURL)
+		for _, dir := range releaseProbeDirs(rel) {
+			base = ubuntuISOBase(cfg, dir, debArch)
+			sumsURL := strings.TrimRight(base, "/") + "/SHA256SUMS"
+			body, err = httpGetBody(hc, sumsURL)
+			if err == nil {
+				fmt.Println("   using configured mirror", base)
+				break
+			}
+		}
 		if err != nil {
-			fmt.Printf("   ! cannot read %s (%v); falling back to filename %s\n", sumsURL, err, fallback)
-			return fallback, "", base, nil
+			base = ubuntuISOBase(cfg, rel, debArch)
+			fmt.Printf("   ! cannot read SHA256SUMS on configured mirror (%v); falling back to filename %s\n", err, fallback)
+			return fallback, "", adjustISOBase(base, fallback), nil
 		}
 	} else {
 		fmt.Println("   fetch Ubuntu CD mirror list and probe latency...")
@@ -362,7 +370,7 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 			base = officialBase
 			if officialErr != nil {
 				fmt.Printf("   ! cannot read %s (%v); falling back to filename %s\n", sumsURL, officialErr, fallback)
-				return fallback, "", base, nil
+				return fallback, "", adjustISOBase(base, fallback), nil
 			}
 			body = officialBody
 		} else {
@@ -377,16 +385,90 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 	name, sum, err = parseLiveServerISO(body, rel, debArch)
 	if err != nil {
 		fmt.Printf("   ! parse SHA256SUMS failed (%v); falling back to %s\n", err, fallback)
-		return fallback, "", base, nil
+		return fallback, "", adjustISOBase(base, fallback), nil
 	}
+	base = adjustISOBase(base, name)
 	return name, sum, base, nil
+}
+
+// releaseProbeDirs lists ISO directory names to try on mirrors (point release first).
+func releaseProbeDirs(rel string) []string {
+	rel = strings.TrimSpace(rel)
+	if rel == "" {
+		rel = defaultUbuntuRelease
+	}
+	if isUbuntuSeriesOnly(rel) {
+		return []string{rel + ".1", rel}
+	}
+	return []string{rel}
+}
+
+func isUbuntuSeriesOnly(rel string) bool {
+	return len(strings.Split(rel, ".")) == 2
+}
+
+func isoReleaseFromName(isoName string) string {
+	if !strings.HasPrefix(isoName, "ubuntu-") {
+		return ""
+	}
+	rest := strings.TrimPrefix(isoName, "ubuntu-")
+	before, _, ok := strings.Cut(rest, "-live-server-")
+	if !ok || before == "" {
+		return ""
+	}
+	return before
+}
+
+func compareUbuntuRelease(a, b string) int {
+	pa := strings.Split(a, ".")
+	pb := strings.Split(b, ".")
+	n := len(pa)
+	if len(pb) > n {
+		n = len(pb)
+	}
+	for i := 0; i < n; i++ {
+		var na, nb int
+		if i < len(pa) {
+			na, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			nb, _ = strconv.Atoi(pb[i])
+		}
+		if na != nb {
+			return na - nb
+		}
+	}
+	return 0
+}
+
+// adjustISOBase rewrites the release segment so .../26.04/ + ubuntu-26.04.1-... becomes .../26.04.1/.
+func adjustISOBase(base, isoName string) string {
+	fileRel := isoReleaseFromName(isoName)
+	if fileRel == "" {
+		return base
+	}
+	u, err := url.Parse(strings.TrimRight(base, "/"))
+	if err != nil {
+		return base
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) == 0 {
+		return base
+	}
+	if parts[len(parts)-1] == "release" && len(parts) >= 2 {
+		parts[len(parts)-2] = fileRel
+	} else {
+		parts[len(parts)-1] = fileRel
+	}
+	u.Path = "/" + strings.Join(parts, "/")
+	return u.String()
 }
 
 func parseLiveServerISO(sums, rel, debArch string) (name, sum string, err error) {
 	sc := bufio.NewScanner(strings.NewReader(sums))
 	suffix := "live-server-" + debArch + ".iso"
 	prefer := fmt.Sprintf("ubuntu-%s-live-server-%s.iso", rel, debArch)
-	var firstName, firstSum string
+	var bestName, bestSum, bestVer string
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -413,15 +495,19 @@ func parseLiveServerISO(sums, rel, debArch string) (name, sum string, err error)
 		if base == prefer {
 			return base, gotSum, nil
 		}
-		if firstName == "" {
-			firstName, firstSum = base, gotSum
+		ver := isoReleaseFromName(base)
+		if ver == "" {
+			continue
+		}
+		if bestVer == "" || compareUbuntuRelease(ver, bestVer) > 0 {
+			bestName, bestSum, bestVer = base, gotSum, ver
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return "", "", err
 	}
-	if firstName != "" {
-		return firstName, firstSum, nil
+	if bestName != "" {
+		return bestName, bestSum, nil
 	}
 	return "", "", fmt.Errorf("SHA256SUMS has no *%s", suffix)
 }

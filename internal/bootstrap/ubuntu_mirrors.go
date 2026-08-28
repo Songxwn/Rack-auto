@@ -295,6 +295,16 @@ func mirrorKey(root string) string {
 }
 
 func pickFastestMirror(hc *http.Client, mirrors []ubuntuMirror, rel string) mirrorHit {
+	for _, dir := range releaseProbeDirs(rel) {
+		hit := pickFastestMirrorDir(hc, mirrors, dir)
+		if hit.err == nil {
+			return hit
+		}
+	}
+	return mirrorHit{err: fmt.Errorf("all mirrors failed probe")}
+}
+
+func pickFastestMirrorDir(hc *http.Client, mirrors []ubuntuMirror, rel string) mirrorHit {
 	if hc == nil {
 		hc = newProbeClient()
 	}

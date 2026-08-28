@@ -44,6 +44,45 @@ cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927 *ubuntu-26.04.1
 	}
 }
 
+func TestParseLiveServerISOPicksLatestWhenSeriesOnly(t *testing.T) {
+	sums := `
+dec49008a71f6098d0bcfc822021f4d042d5f2db279e4d75bdd981304f1ca5d9 *ubuntu-26.04-live-server-amd64.iso
+cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927 *ubuntu-26.04.1-live-server-amd64.iso
+`
+	name, _, err := parseLiveServerISO(sums, "26.04", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "ubuntu-26.04.1-live-server-amd64.iso" {
+		t.Fatalf("name %s", name)
+	}
+}
+
+func TestAdjustISOBase(t *testing.T) {
+	base := "https://mirror.twds.com.tw/ubuntu-releases/26.04"
+	got := adjustISOBase(base, "ubuntu-26.04.1-live-server-amd64.iso")
+	want := "https://mirror.twds.com.tw/ubuntu-releases/26.04.1"
+	if got != want {
+		t.Fatalf("got %s want %s", got, want)
+	}
+	arm := "https://cdimage.ubuntu.com/releases/26.04/release"
+	got = adjustISOBase(arm, "ubuntu-26.04.1-live-server-arm64.iso")
+	want = "https://cdimage.ubuntu.com/releases/26.04.1/release"
+	if got != want {
+		t.Fatalf("arm got %s want %s", got, want)
+	}
+}
+
+func TestReleaseProbeDirs(t *testing.T) {
+	got := releaseProbeDirs("26.04")
+	if len(got) != 2 || got[0] != "26.04.1" || got[1] != "26.04" {
+		t.Fatalf("%v", got)
+	}
+	if dirs := releaseProbeDirs("26.04.1"); len(dirs) != 1 || dirs[0] != "26.04.1" {
+		t.Fatalf("%v", dirs)
+	}
+}
+
 func TestUbuntuISOBase(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Bootstrap.UbuntuMirror = ""
