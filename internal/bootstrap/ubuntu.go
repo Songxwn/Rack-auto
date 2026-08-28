@@ -83,7 +83,7 @@ func installUbuntuArch(metaHC, isoHC *http.Client, cfg config.Config, arch, rel 
 		fmt.Println("   +", isoPath, "(cached)")
 	}
 
-	if kernelReady(vmlinuz, stock) {
+	if kernelReady(vmlinuz, stock) && !fileNewer(isoPath, vmlinuz) {
 		fmt.Println("   +", vmlinuz, "(cached)")
 	} else {
 		fmt.Println("   extract casper/vmlinuz and casper/initrd from ISO")
@@ -94,7 +94,7 @@ func installUbuntuArch(metaHC, isoHC *http.Client, cfg config.Config, arch, rel 
 		fmt.Println("   +", stock)
 	}
 
-	if casperISOReady(casperISO) && fileMin(layerFile, 8) {
+	if casperISOReady(casperISO) && fileMin(layerFile, 8) && !fileNewer(isoPath, casperISO) {
 		fmt.Println("   +", casperISO, "(cached)")
 	} else {
 		fmt.Println("   extract casper squashfs from ISO (machines fetch this layer only)")
@@ -643,6 +643,15 @@ func extractCasper(iso, vmlinuz, initrd string) error {
 func fileMin(path string, n int64) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.Size() >= n
+}
+
+func fileNewer(src, dst string) bool {
+	ss, err1 := os.Stat(src)
+	ds, err2 := os.Stat(dst)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return ss.ModTime().After(ds.ModTime())
 }
 
 func extractCasperExternal(iso, dest string) error {

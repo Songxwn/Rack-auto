@@ -60,6 +60,9 @@ func main() {
 	if err := cfg.EnsureDirs(); err != nil {
 		log.Fatal(err)
 	}
+	if err := bootstrap.CheckRAMOS(cfg); err != nil {
+		log.Printf("WARNING: %v", err)
+	}
 	if err := bootstrap.InstallIPXE(cfg.TFTPDir()); err != nil {
 		log.Printf("install bundled iPXE: %v", err)
 	}
