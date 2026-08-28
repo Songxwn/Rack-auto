@@ -67,7 +67,7 @@ func Default() Config {
 			DNS:        "8.8.8.8",
 			PXEOnly:    boolPtr(false),
 		},
-		Bootstrap: Boot{UbuntuRelease: "26.04", UbuntuArches: []string{"x86_64"}},
+		Bootstrap: Boot{UbuntuRelease: "26.04.1", UbuntuArches: []string{"x86_64"}},
 	}
 }
 
@@ -102,7 +102,7 @@ func (c *Config) normalize() {
 	}
 	c.DHCP.Normalize()
 	if c.Bootstrap.UbuntuRelease == "" {
-		c.Bootstrap.UbuntuRelease = "26.04"
+		c.Bootstrap.UbuntuRelease = "26.04.1"
 	}
 	if len(c.Bootstrap.UbuntuArches) == 0 {
 		c.Bootstrap.UbuntuArches = []string{"x86_64"}

@@ -20,7 +20,7 @@ func TestExampleYAMLParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Bootstrap.UbuntuRelease != "26.04" {
+	if cfg.Bootstrap.UbuntuRelease != "26.04.1" {
 		t.Fatalf("ubuntu_release=%q", cfg.Bootstrap.UbuntuRelease)
 	}
 }

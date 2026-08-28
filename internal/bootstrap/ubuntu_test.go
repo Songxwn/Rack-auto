@@ -15,7 +15,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 *ubuntu-26.04-l
 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *ubuntu-26.04-live-server-amd64.iso.zsync
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *ubuntu-26.04-live-server-amd64.list
 `
-	name, sum, err := parseLiveServerISO(sums, "amd64")
+	name, sum, err := parseLiveServerISO(sums, "26.04", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,6 +23,23 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *ubuntu-26.04-l
 		t.Fatalf("name %s", name)
 	}
 	if sum != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		t.Fatalf("sum %s", sum)
+	}
+}
+
+func TestParseLiveServerISOPrefersPointRelease(t *testing.T) {
+	sums := `
+dec49008a71f6098d0bcfc822021f4d042d5f2db279e4d75bdd981304f1ca5d9 *ubuntu-26.04-live-server-amd64.iso
+cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927 *ubuntu-26.04.1-live-server-amd64.iso
+`
+	name, sum, err := parseLiveServerISO(sums, "26.04.1", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "ubuntu-26.04.1-live-server-amd64.iso" {
+		t.Fatalf("name %s", name)
+	}
+	if sum != "cc8a95cde20f6ced61a322420de00f10cc3c90ced545daa46cb9c1a117f1d927" {
 		t.Fatalf("sum %s", sum)
 	}
 }

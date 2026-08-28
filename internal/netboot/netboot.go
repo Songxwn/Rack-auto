@@ -272,7 +272,7 @@ sanboot --no-describe --drive 0x80 || exit
 	archDir := ArchDir(arch)
 	rel := s.Cfg.Bootstrap.UbuntuRelease
 	if rel == "" {
-		rel = "26.04"
+		rel = "26.04.1"
 	}
 	token := s.Cfg.APIToken
 	if s.Store != nil && s.Store.S != nil {

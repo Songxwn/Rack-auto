@@ -1,6 +1,6 @@
 # Rack-auto RAMOS
 #
-# 内存 Ubuntu 26.04 LTS live-server：控制面缓存完整 ISO，
+# 内存 Ubuntu 26.04.1 LTS live-server：控制面缓存完整 ISO，
 # PXE 客户端只拉 casper squashfs 打成的 casper.iso，再由 initrd overlay 拉起 Agent。
 # iPXE 固件打在控制面里，PXE 不访问 boot.ipxe.org。
 # 完整步骤见 docs/deploy.md。

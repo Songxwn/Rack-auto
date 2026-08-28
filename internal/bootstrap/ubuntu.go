@@ -16,7 +16,7 @@ import (
 	"github.com/Songxwn/Rack-auto/internal/config"
 )
 
-const defaultUbuntuRelease = "26.04"
+const defaultUbuntuRelease = "26.04.1"
 
 func installUbuntu(hc *http.Client, cfg config.Config, offline bool) error {
 	rel := cfg.Bootstrap.UbuntuRelease
@@ -374,7 +374,7 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 			fmt.Printf("   using %s (%s) %s\n", hit.name, formatLatency(hit.d), base)
 		}
 	}
-	name, sum, err = parseLiveServerISO(body, debArch)
+	name, sum, err = parseLiveServerISO(body, rel, debArch)
 	if err != nil {
 		fmt.Printf("   ! parse SHA256SUMS failed (%v); falling back to %s\n", err, fallback)
 		return fallback, "", base, nil
@@ -382,9 +382,11 @@ func resolveLiveServerISO(hc *http.Client, cfg config.Config, rel, debArch strin
 	return name, sum, base, nil
 }
 
-func parseLiveServerISO(sums, debArch string) (name, sum string, err error) {
+func parseLiveServerISO(sums, rel, debArch string) (name, sum string, err error) {
 	sc := bufio.NewScanner(strings.NewReader(sums))
 	suffix := "live-server-" + debArch + ".iso"
+	prefer := fmt.Sprintf("ubuntu-%s-live-server-%s.iso", rel, debArch)
+	var firstName, firstSum string
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -407,10 +409,19 @@ func parseLiveServerISO(sums, debArch string) (name, sum string, err error) {
 		if len(sumPart) != 64 {
 			continue
 		}
-		return base, strings.ToLower(sumPart), nil
+		gotSum := strings.ToLower(sumPart)
+		if base == prefer {
+			return base, gotSum, nil
+		}
+		if firstName == "" {
+			firstName, firstSum = base, gotSum
+		}
 	}
 	if err := sc.Err(); err != nil {
 		return "", "", err
+	}
+	if firstName != "" {
+		return firstName, firstSum, nil
 	}
 	return "", "", fmt.Errorf("SHA256SUMS has no *%s", suffix)
 }

@@ -93,7 +93,7 @@ cp configs/rackauto.example.yaml configs/rackauto.yaml
 
 ### 3. 准备引导文件
 
-iPXE 已内置。Ubuntu 26.04 live-server ISO 第一次需要联网缓存（约 2.7GB，不必装 Go）。bootstrap 会再打一份只含 squashfs 的 `casper.iso`，PXE 机器只拉这一份：
+iPXE 已内置。Ubuntu 26.04.1 live-server ISO 第一次需要联网缓存（约 2.7GB，不必装 Go）。bootstrap 会再打一份只含 squashfs 的 `casper.iso`，PXE 机器只拉这一份：
 
 ```bash
 ./bin/rackauto bootstrap -config configs/rackauto.yaml
@@ -131,7 +131,7 @@ sudo ./bin/rackauto serve -config configs/rackauto.yaml
 | `tftp_listen` | 默认 `:69` |
 | `dhcp.enabled` | 内置 DHCP，也可只在网页里开关 |
 | `dhcp.interface` | 只在这块接入网卡上应答 PXE |
-| `bootstrap.ubuntu_release` | RAMOS 用的 Ubuntu LTS，默认 `26.04` |
+| `bootstrap.ubuntu_release` | RAMOS 用的 Ubuntu LTS，默认 `26.04.1` |
 | `bootstrap.ubuntu_mirror` | 空/`auto` 则从 Ubuntu 官方 CD 镜像列表取路径并选延迟最低的（不含阿里云）；也可钉死 URL |
 
 ## 长期运行
